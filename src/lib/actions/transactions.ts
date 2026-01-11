@@ -1,0 +1,206 @@
+'use server';
+
+import { revalidatePath } from 'next/cache';
+import { transactionRepository } from '@/lib/repositories/transaction-repository';
+import { accountRepository } from '@/lib/repositories/account-repository';
+import { createTransactionSchema, updateTransactionSchema } from '@/lib/validations/transaction-schema';
+import { createClient } from '@/lib/supabase/server';
+import type { Database } from '@/lib/types/database.types';
+import type { TransactionWithRelations } from '@/lib/repositories/transaction-repository';
+
+type ActionResult<T> =
+  | { success: true; data: T }
+  | { success: false; error: string; details?: unknown };
+
+async function getCurrentUser() {
+  const supabase = await createClient();
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error || !user) return null;
+  return user;
+}
+
+export async function getTransactions(filters?: {
+  startDate?: string;
+  endDate?: string;
+  categoryId?: string;
+  accountId?: string;
+  kind?: Database['public']['Enums']['transaction_kind'];
+  status?: Database['public']['Enums']['transaction_status'];
+  page?: number;
+  limit?: number;
+}): Promise<ActionResult<{ data: TransactionWithRelations[]; count: number; totalPages: number }>> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    const limit = filters?.limit || 20;
+    const page = filters?.page || 1;
+    const offset = (page - 1) * limit;
+
+    const result = await transactionRepository.getAll(user.id, {
+      ...filters,
+      limit,
+      offset,
+    });
+
+    return {
+      success: true,
+      data: {
+        ...result,
+        totalPages: Math.ceil(result.count / limit),
+      },
+    };
+  } catch (error) {
+    console.error('Error fetching transactions:', error);
+    return { success: false, error: 'Failed to fetch transactions' };
+  }
+}
+
+export async function getTransaction(id: string): Promise<ActionResult<TransactionWithRelations>> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    const transaction = await transactionRepository.getById(id, user.id);
+    if (!transaction) {
+      return { success: false, error: 'Transaction not found' };
+    }
+
+    return { success: true, data: transaction };
+  } catch (error) {
+    console.error('Error fetching transaction:', error);
+    return { success: false, error: 'Failed to fetch transaction' };
+  }
+}
+
+export async function createTransaction(data: unknown): Promise<ActionResult<TransactionWithRelations>> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    const validated = createTransactionSchema.parse(data);
+
+    // Create transaction
+    const transaction = await transactionRepository.create({
+      ...validated,
+      user_id: user.id,
+    });
+
+    revalidatePath('/dashboard');
+    revalidatePath('/transactions');
+
+    return { success: true, data: transaction };
+  } catch (error) {
+    console.error('Error creating transaction:', error);
+    
+    if (error instanceof Error && 'issues' in error) {
+      return { success: false, error: 'Validation error', details: error };
+    }
+
+    return { success: false, error: 'Failed to create transaction' };
+  }
+}
+
+export async function updateTransaction(
+  id: string,
+  data: unknown
+): Promise<ActionResult<TransactionWithRelations>> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    const validated = updateTransactionSchema.parse(data);
+
+    // Update transaction
+    const transaction = await transactionRepository.update(id, user.id, validated);
+
+    revalidatePath('/dashboard');
+    revalidatePath('/transactions');
+
+    return { success: true, data: transaction };
+  } catch (error) {
+    console.error('Error updating transaction:', error);
+    
+    if (error instanceof Error && 'issues' in error) {
+      return { success: false, error: 'Validation error', details: error };
+    }
+
+    return { success: false, error: 'Failed to update transaction' };
+  }
+}
+
+export async function deleteTransaction(id: string): Promise<ActionResult<void>> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    await transactionRepository.delete(id, user.id);
+
+    revalidatePath('/dashboard');
+    revalidatePath('/transactions');
+
+    return { success: true, data: undefined };
+  } catch (error) {
+    console.error('Error deleting transaction:', error);
+    return { success: false, error: 'Failed to delete transaction' };
+  }
+}
+
+export async function getTransactionsSummary(
+  startDate: string,
+  endDate: string
+): Promise<ActionResult<{ totalIncome: number; totalExpense: number; balance: number }>> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    const summary = await transactionRepository.getSummary(user.id, startDate, endDate);
+    return { success: true, data: summary };
+  } catch (error) {
+    console.error('Error fetching summary:', error);
+    return { success: false, error: 'Failed to fetch summary' };
+  }
+}
+
+export async function getAccountTransactions(
+  accountId: string,
+  startDate?: string,
+  endDate?: string
+): Promise<ActionResult<TransactionWithRelations[]>> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    // Verify account belongs to user
+    const account = await accountRepository.getById(accountId, user.id);
+    if (!account) {
+      return { success: false, error: 'Account not found' };
+    }
+
+    const result = await transactionRepository.getAll(user.id, {
+      accountId,
+      startDate,
+      endDate,
+      limit: 1000,
+    });
+
+    return { success: true, data: result.data };
+  } catch (error) {
+    console.error('Error fetching account transactions:', error);
+    return { success: false, error: 'Failed to fetch account transactions' };
+  }
+}

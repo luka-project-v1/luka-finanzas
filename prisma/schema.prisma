@@ -1,0 +1,317 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ================================
+// ENUMS
+// ================================
+
+enum BalanceNature {
+  ASSET
+  LIABILITY
+}
+
+enum AccountStatus {
+  ACTIVE
+  CLOSED
+}
+
+enum TransactionStatus {
+  PENDING
+  POSTED
+  VOID
+}
+
+enum TransactionKind {
+  NORMAL
+  TRANSFER
+  ADJUSTMENT
+  FEE
+  INTEREST
+}
+
+enum BankAccountKind {
+  SAVINGS
+  CHECKING
+}
+
+// ================================
+// USERS
+// ================================
+
+model User {
+  id                String   @id @default(uuid())
+  email             String   @unique
+  fullName          String?  @map("full_name")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  accounts          Account[]
+  categories        Category[]
+  reconciliations   Reconciliation[]
+  transactions      Transaction[]
+  transfers         Transfer[]
+  tags              Tag[]
+
+  @@map("users")
+}
+
+// ================================
+// ACCOUNT TYPES (ENTITY)
+// ================================
+
+model AccountType {
+  id            String        @id @default(uuid())
+  code          String        @unique // BANK_ACCOUNT, CREDIT_CARD, CASH
+  name          String
+  balanceNature BalanceNature @map("balance_nature") // ASSET or LIABILITY
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  // Relations
+  accounts      Account[]
+
+  @@map("account_types")
+}
+
+// ================================
+// ACCOUNTS
+// ================================
+
+model Account {
+  id              String        @id @default(uuid())
+  userId          String        @map("user_id")
+  accountTypeId   String        @map("account_type_id")
+  name            String
+  currencyCode    String        @map("currency_code") @db.VarChar(3)
+  status          AccountStatus @default(ACTIVE)
+  institutionName String?       @map("institution_name")
+  externalId      String?       @map("external_id")
+  openedAt        DateTime?     @map("opened_at") @db.Date
+  closedAt        DateTime?     @map("closed_at") @db.Date
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  // Relations
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountType     AccountType   @relation(fields: [accountTypeId], references: [id])
+  bankDetails     BankAccountDetails?
+  creditCardDetails CreditCardDetails?
+  fromTransfers   Transfer[]    @relation("FromAccount")
+  toTransfers     Transfer[]    @relation("ToAccount")
+  transactions    Transaction[]
+  reconciliations Reconciliation[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@index([accountTypeId])
+  @@map("accounts")
+}
+
+// ================================
+// BANK ACCOUNT DETAILS (1:1)
+// ================================
+
+model BankAccountDetails {
+  accountId        String          @id @map("account_id")
+  kind             BankAccountKind
+  bankName         String?         @map("bank_name")
+  maskedNumber     String?         @map("masked_number")
+  interestRateAnnual Decimal?      @map("interest_rate_annual") @db.Decimal(8, 5)
+  monthlyFee       Decimal?         @map("monthly_fee") @db.Decimal(18, 2)
+  overdraftLimit   Decimal?        @map("overdraft_limit") @db.Decimal(18, 2)
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+
+  // Relations
+  account          Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@map("bank_account_details")
+}
+
+// ================================
+// CREDIT CARD DETAILS (1:1)
+// ================================
+
+model CreditCardDetails {
+  accountId            String   @id @map("account_id")
+  issuer               String?
+  bankName             String?   @map("bank_name")
+  last4                String?   @db.VarChar(4)
+  creditLimit          Decimal   @map("credit_limit") @db.Decimal(18, 2)
+  managementFee        Decimal?  @map("management_fee") @db.Decimal(18, 2)
+  managementFeePeriod  String?  @map("management_fee_period")
+  interestRateAnnual   Decimal? @map("interest_rate_annual") @db.Decimal(8, 5)
+  interestRateMonthly  Decimal? @map("interest_rate_monthly") @db.Decimal(8, 5)
+  billingCycleDay      Int?     @map("billing_cycle_day")
+  paymentDueDay        Int?     @map("payment_due_day")
+  lastStatementDate    DateTime? @map("last_statement_date") @db.Date
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  account              Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@map("credit_card_details")
+}
+
+// ================================
+// CATEGORIES
+// ================================
+
+model Category {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  name          String
+  parentId      String?  @map("parent_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent        Category? @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children      Category[] @relation("CategoryHierarchy")
+  transactions  Transaction[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@index([parentId])
+  @@map("categories")
+}
+
+// ================================
+// RECONCILIATIONS (SYNC BALANCE)
+// ================================
+
+model Reconciliation {
+  id                    String      @id @default(uuid())
+  userId                String      @map("user_id")
+  accountId             String      @map("account_id")
+  enteredBalance        Decimal     @map("entered_balance") @db.Decimal(18, 2) // saldo real ingresado
+  calculatedBalanceBefore Decimal   @map("calculated_balance_before") @db.Decimal(18, 2)
+  delta                 Decimal      @db.Decimal(18, 2) // entered - calculated
+  occurredAt            DateTime    @map("occurred_at")
+  note                  String?
+  createdAt             DateTime    @default(now()) @map("created_at")
+
+  // Relations
+  user                  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account               Account     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  transactions          Transaction[]
+
+  @@index([accountId, occurredAt])
+  @@index([userId, occurredAt])
+  @@map("reconciliations")
+}
+
+// ================================
+// TRANSACTIONS (LEDGER)
+// ================================
+
+model Transaction {
+  id                String            @id @default(uuid())
+  userId            String            @map("user_id")
+  accountId         String            @map("account_id")
+  signedAmount      Decimal           @map("signed_amount") @db.Decimal(18, 2) // Ledger rule: ASSET: income + / expense -, LIABILITY: charge + / payment -
+  status            TransactionStatus @default(POSTED)
+  kind              TransactionKind   @default(NORMAL)
+  categoryId        String?           @map("category_id")
+  description       String?
+  occurredAt        DateTime          @map("occurred_at")
+  postedAt          DateTime?         @map("posted_at")
+  transferId        String?           @map("transfer_id")
+  reconciliationId  String?           @map("reconciliation_id")
+  balanceAfter      Decimal?          @map("balance_after") @db.Decimal(18, 2) // saldo objetivo tras ajuste
+  source            String?           // MANUAL, IMPORT, CSV, etc.
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+
+  // Relations
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account           Account           @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  category          Category?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  transfer          Transfer?         @relation("TransferTransactions", fields: [transferId], references: [id], onDelete: SetNull)
+  reconciliation    Reconciliation?   @relation(fields: [reconciliationId], references: [id], onDelete: SetNull)
+  transactionTags   TransactionTag[]
+  asFromTransfer    Transfer?         @relation("FromTransaction")
+  asToTransfer      Transfer?         @relation("ToTransaction")
+
+  @@index([accountId, status, occurredAt])
+  @@index([userId, occurredAt])
+  @@index([categoryId])
+  @@index([transferId])
+  @@index([reconciliationId])
+  @@map("transactions")
+}
+
+// ================================
+// TRANSFERS
+// ================================
+
+model Transfer {
+  id                String            @id @default(uuid())
+  userId            String            @map("user_id")
+  fromAccountId     String            @map("from_account_id")
+  toAccountId       String            @map("to_account_id")
+  amount            Decimal           @db.Decimal(18, 2)
+  currencyCode      String            @map("currency_code") @db.VarChar(3)
+  fromTransactionId String?           @unique @map("from_transaction_id")
+  toTransactionId   String?           @unique @map("to_transaction_id")
+  status            TransactionStatus @default(POSTED)
+  occurredAt        DateTime          @map("occurred_at")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+
+  // Relations
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fromAccount       Account           @relation("FromAccount", fields: [fromAccountId], references: [id], onDelete: Cascade)
+  toAccount         Account           @relation("ToAccount", fields: [toAccountId], references: [id], onDelete: Cascade)
+  fromTransaction   Transaction?      @relation("FromTransaction", fields: [fromTransactionId], references: [id], onDelete: SetNull)
+  toTransaction     Transaction?      @relation("ToTransaction", fields: [toTransactionId], references: [id], onDelete: SetNull)
+  transactions      Transaction[]     @relation("TransferTransactions")
+
+  @@index([fromAccountId, occurredAt])
+  @@index([toAccountId, occurredAt])
+  @@map("transfers")
+}
+
+// ================================
+// TAGS
+// ================================
+
+model Tag {
+  id            String          @id @default(uuid())
+  userId        String          @map("user_id")
+  name          String
+  createdAt     DateTime        @default(now()) @map("created_at")
+
+  // Relations
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactionTags TransactionTag[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("tags")
+}
+
+model TransactionTag {
+  transactionId String      @map("transaction_id")
+  tagId         String      @map("tag_id")
+
+  // Relations
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  tag           Tag         @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([transactionId, tagId])
+  @@map("transaction_tags")
+}

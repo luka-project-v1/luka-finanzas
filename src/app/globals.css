@@ -1,0 +1,113 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+ 
+@layer base {
+  :root {
+    /* Luka Custom Colors - Anthropic inspired */
+    --background: 33 28 18; /* #F5F3EE - Cream warm */
+    --foreground: 0 0 10; /* #1A1A1A - Deep black */
+ 
+    --card: 0 0 100; /* #FFFFFF - White for cards */
+    --card-foreground: 0 0 10;
+ 
+    --popover: 0 0 100;
+    --popover-foreground: 0 0 10;
+ 
+    --primary: 16 57 49; /* #D97757 - Terracotta */
+    --primary-foreground: 0 0 100;
+ 
+    --secondary: 0 0 42; /* #6B6B6B - Gray */
+    --secondary-foreground: 0 0 100;
+ 
+    --muted: 33 28 18; /* #F5F3EE - Same as background */
+    --muted-foreground: 0 0 42;
+ 
+    --accent: 16 57 49; /* #D97757 - Terracotta */
+    --accent-foreground: 0 0 100;
+ 
+    --destructive: 0 72 51; /* #DC2626 - Red */
+    --destructive-foreground: 0 0 100;
+ 
+    --border: 28 17 12; /* #E5E3DE - Soft neutral */
+    --input: 0 0 100; /* White for inputs */
+    --ring: 16 57 49;
+ 
+    --radius: 0.75rem; /* 12px - rounded corners */
+    
+    /* Semantic colors */
+    --success: 142 71 54; /* #4CAF50 - Green for income */
+    --warning: 38 92 50; /* #F59E0B - Amber */
+    --error: 0 72 51; /* #DC2626 - Red for expenses */
+    --info: 217 92 60; /* #3B82F6 - Blue */
+  }
+ 
+  .dark {
+    --background: 0 0 10; /* #1A1A1A */
+    --foreground: 33 28 24; /* #F5F3EE */
+ 
+    --card: 0 0 16; /* #2A2A2A */
+    --card-foreground: 33 28 24;
+ 
+    --popover: 0 0 16;
+    --popover-foreground: 33 28 24;
+ 
+    --primary: 16 57 49;
+    --primary-foreground: 0 0 100;
+ 
+    --secondary: 0 0 42;
+    --secondary-foreground: 0 0 100;
+ 
+    --muted: 0 0 16;
+    --muted-foreground: 0 0 60;
+ 
+    --accent: 16 57 49;
+    --accent-foreground: 0 0 100;
+ 
+    --destructive: 0 72 51;
+    --destructive-foreground: 0 0 100;
+ 
+    --border: 0 0 16;
+    --input: 0 0 16;
+    --ring: 16 57 49;
+  }
+}
+ 
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-[#F5F3EE] text-foreground;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold tracking-tight;
+  }
+  
+  h1 {
+    @apply text-4xl;
+  }
+  
+  h2 {
+    @apply text-2xl;
+  }
+  
+  h3 {
+    @apply text-xl;
+  }
+}
+
+@layer components {
+  .card-shadow {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+  }
+  
+  .card-shadow-lg {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -1px rgba(0, 0, 0, 0.04);
+  }
+}
