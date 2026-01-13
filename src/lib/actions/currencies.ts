@@ -1,12 +1,24 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
-import type { Database } from '@/lib/types/database.types';
-import { getRateToCOP, updateCurrencyRates } from '@/lib/services/exchange-rate';
 
-type Currency = Database['public']['Tables']['currencies']['Row'];
+// Currency type (not in Prisma schema, but exists in Supabase)
+type Currency = {
+  id: string;
+  user_id: string;
+  code: string;
+  name: string;
+  symbol: string;
+  exchange_rate_to_preferred: number | null;
+  created_at?: string;
+  updated_at?: string;
+};
 
-export async function getCurrencies() {
+type ActionResult<T> =
+  | { success: true; data: T }
+  | { success: false; error: string; details?: unknown };
+
+export async function getCurrencies(): Promise<ActionResult<Currency[]>> {
   try {
     const supabase = await createClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -30,27 +42,13 @@ export async function getCurrencies() {
   }
 }
 
-export async function getOrCreateDefaultCurrencies() {
+export async function getOrCreateDefaultCurrencies(): Promise<ActionResult<Currency[]>> {
   try {
     const supabase = await createClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     
     if (authError || !user) {
       return { success: false, error: 'Unauthorized' };
-    }
-
-    // Update user's preferred currency to COP if not set
-    const { data: userData } = await supabase
-      .from('users')
-      .select('preferred_currency')
-      .eq('id', user.id)
-      .single();
-
-    if (!userData?.preferred_currency || userData.preferred_currency !== 'COP') {
-      await supabase
-        .from('users')
-        .update({ preferred_currency: 'COP' })
-        .eq('id', user.id);
     }
 
     // Check if user has currencies
@@ -61,40 +59,24 @@ export async function getOrCreateDefaultCurrencies() {
       .limit(1);
 
     if (existing && existing.length > 0) {
-      // Update exchange rates before returning
-      await updateCurrencyRates(user.id);
       return await getCurrencies();
     }
 
-    // Fetch current exchange rates
-    const usdRate = await getRateToCOP('USD');
-    const eurRate = await getRateToCOP('EUR');
-
-    // Create default currencies with current exchange rates to COP
+    // Create default currencies (USD and COP)
     const defaultCurrencies = [
-      { 
-        user_id: user.id, 
-        code: 'USD', 
-        name: 'US Dollar', 
-        symbol: '$', 
-        exchange_rate_to_preferred: usdRate, 
-        is_system_currency: true 
+      {
+        user_id: user.id,
+        code: 'USD',
+        name: 'US Dollar',
+        symbol: '$',
+        exchange_rate_to_preferred: null, // Will be set by user preference or API
       },
-      { 
-        user_id: user.id, 
-        code: 'COP', 
-        name: 'Colombian Peso', 
-        symbol: '$', 
-        exchange_rate_to_preferred: 1.0, // COP is the base
-        is_system_currency: true 
-      },
-      { 
-        user_id: user.id, 
-        code: 'EUR', 
-        name: 'Euro', 
-        symbol: '€', 
-        exchange_rate_to_preferred: eurRate, 
-        is_system_currency: true 
+      {
+        user_id: user.id,
+        code: 'COP',
+        name: 'Colombian Peso',
+        symbol: '$',
+        exchange_rate_to_preferred: 1, // Default preferred currency
       },
     ];
 
@@ -111,10 +93,7 @@ export async function getOrCreateDefaultCurrencies() {
   }
 }
 
-/**
- * Refresh exchange rates for all user currencies
- */
-export async function refreshExchangeRates() {
+export async function refreshExchangeRates(): Promise<ActionResult<void>> {
   try {
     const supabase = await createClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -123,9 +102,38 @@ export async function refreshExchangeRates() {
       return { success: false, error: 'Unauthorized' };
     }
 
-    await updateCurrencyRates(user.id);
+    // Get all currencies for the user
+    const { data: currencies, error: fetchError } = await supabase
+      .from('currencies')
+      .select('*')
+      .eq('user_id', user.id);
+
+    if (fetchError) throw fetchError;
+
+    if (!currencies || currencies.length === 0) {
+      return { success: false, error: 'No currencies found' };
+    }
+
+    // Find preferred currency (COP by default)
+    const preferredCurrency = currencies.find(c => c.code === 'COP') || currencies[0];
     
-    return { success: true };
+    // Update exchange rates (simplified - in production, fetch from API)
+    // For now, we'll just set a default rate for USD to COP
+    const usdCurrency = currencies.find(c => c.code === 'USD');
+    if (usdCurrency && preferredCurrency.code === 'COP') {
+      // Default rate: 1 USD = 4000 COP (this should come from an API in production)
+      const defaultRate = 4000;
+      
+      const { error: updateError } = await supabase
+        .from('currencies')
+        .update({ exchange_rate_to_preferred: defaultRate })
+        .eq('id', usdCurrency.id)
+        .eq('user_id', user.id);
+
+      if (updateError) throw updateError;
+    }
+
+    return { success: true, data: undefined };
   } catch (error) {
     console.error('Error refreshing exchange rates:', error);
     return { success: false, error: 'Failed to refresh exchange rates' };

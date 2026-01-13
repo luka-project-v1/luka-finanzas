@@ -7,8 +7,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
 }
 
 // ================================
@@ -42,6 +40,11 @@ enum TransactionKind {
 enum BankAccountKind {
   SAVINGS
   CHECKING
+}
+
+enum Currency {
+  USD
+  COP
 }
 
 // ================================
@@ -93,7 +96,7 @@ model Account {
   userId          String        @map("user_id")
   accountTypeId   String        @map("account_type_id")
   name            String
-  currencyCode    String        @map("currency_code") @db.VarChar(3)
+  currencyCode    Currency      @map("currency_code")
   status          AccountStatus @default(ACTIVE)
   institutionName String?       @map("institution_name")
   externalId      String?       @map("external_id")
@@ -264,7 +267,7 @@ model Transfer {
   fromAccountId     String            @map("from_account_id")
   toAccountId       String            @map("to_account_id")
   amount            Decimal           @db.Decimal(18, 2)
-  currencyCode      String            @map("currency_code") @db.VarChar(3)
+  currencyCode      Currency          @map("currency_code")
   fromTransactionId String?           @unique @map("from_transaction_id")
   toTransactionId   String?           @unique @map("to_transaction_id")
   status            TransactionStatus @default(POSTED)

@@ -1,27 +1,33 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { Currency } from '@prisma/client';
 import { getBankAccounts, createBankAccount, updateBankAccount, deleteBankAccount } from '@/lib/actions/accounts';
 import { getCreditCards, createCreditCard, updateCreditCard, deleteCreditCard } from '@/lib/actions/credits';
-import { getLoansGiven, createLoanGiven, updateLoanGiven, deleteLoanGiven } from '@/lib/actions/credits';
-import { getLoansReceived, createLoanReceived, updateLoanReceived, deleteLoanReceived } from '@/lib/actions/credits';
 import { getOrCreateDefaultCurrencies } from '@/lib/actions/currencies';
 import { formatCurrency } from '@/lib/utils/currency';
+
+// Currency options from enum
+const CURRENCY_OPTIONS: { value: Currency; label: string }[] = [
+  { value: 'USD', label: 'USD - US Dollar' },
+  { value: 'COP', label: 'COP - Colombian Peso' },
+];
 
 interface Account {
   id: string;
   name: string;
-  bank_name: string | null;
-  account_type: 'savings' | 'checking';
-  currency_id: string;
-  initial_balance: number;
-  start_month: number | null;
-  end_month: number | null;
-  is_active: boolean;
-  currencies?: {
-    symbol: string;
-    code: string;
-  };
+  currency_code: string;
+  institution_name: string | null;
+  opened_at: string | null;
+  status: 'ACTIVE' | 'CLOSED';
+  bank_account_details?: {
+    kind: 'SAVINGS' | 'CHECKING';
+    bank_name: string | null;
+    masked_number: string | null;
+    interest_rate_annual: number | null;
+    monthly_fee: number | null;
+    overdraft_limit: number | null;
+  } | null;
 }
 
 interface CreditCard {
@@ -44,46 +50,12 @@ interface CreditCard {
   };
 }
 
-interface LoanGiven {
-  id: string;
-  debtor_name: string;
-  amount: number;
-  currency_id: string;
-  loan_date: string;
-  due_date: string | null;
-  interest_rate: number;
-  start_month: number | null;
-  end_month: number | null;
-  currencies?: {
-    symbol: string;
-    code: string;
-  };
-}
-
-interface LoanReceived {
-  id: string;
-  creditor_name: string;
-  amount: number;
-  currency_id: string;
-  loan_date: string;
-  due_date: string | null;
-  interest_rate: number;
-  start_month: number | null;
-  end_month: number | null;
-  currencies?: {
-    symbol: string;
-    code: string;
-  };
-}
-
-type TabType = 'accounts' | 'credit_cards' | 'loans_given' | 'loans_received';
+type TabType = 'accounts' | 'credit_cards';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<TabType>('accounts');
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [creditCards, setCreditCards] = useState<CreditCard[]>([]);
-  const [loansGiven, setLoansGiven] = useState<LoanGiven[]>([]);
-  const [loansReceived, setLoansReceived] = useState<LoanReceived[]>([]);
   const [currencies, setCurrencies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -98,12 +70,11 @@ export default function SettingsPage() {
 
   const loadData = async () => {
     setLoading(true);
-    const [accountsResult, cardsResult, loansGivenResult, loansReceivedResult, currenciesResult] = await Promise.all([
+    // Only load currencies if needed for credit cards
+    // For accounts, we use the Currency enum directly
+    const [accountsResult, cardsResult] = await Promise.all([
       getBankAccounts(),
       getCreditCards(),
-      getLoansGiven(),
-      getLoansReceived(),
-      getOrCreateDefaultCurrencies(),
     ]);
 
     if (accountsResult.success && 'data' in accountsResult) {
@@ -112,14 +83,12 @@ export default function SettingsPage() {
     if (cardsResult.success && 'data' in cardsResult) {
       setCreditCards(cardsResult.data as any);
     }
-    if (loansGivenResult.success && 'data' in loansGivenResult) {
-      setLoansGiven(loansGivenResult.data as any);
-    }
-    if (loansReceivedResult.success && 'data' in loansReceivedResult) {
-      setLoansReceived(loansReceivedResult.data as any);
-    }
-    if (currenciesResult.success && 'data' in currenciesResult) {
-      setCurrencies(currenciesResult.data as any);
+    // Load currencies only if needed for credit cards
+    if (activeTab === 'credit_cards') {
+      const currenciesResult = await getOrCreateDefaultCurrencies();
+      if (currenciesResult.success && 'data' in currenciesResult) {
+        setCurrencies(currenciesResult.data as any);
+      }
     }
     setLoading(false);
   };
@@ -130,12 +99,15 @@ export default function SettingsPage() {
     if (activeTab === 'accounts') {
       setFormData({
         name: '',
+        currency_code: 'COP',
+        institution_name: '',
+        opened_at: '',
+        kind: 'SAVINGS',
         bank_name: '',
-        account_type: 'savings',
-        currency_id: currencies[0]?.id || '',
-        initial_balance: 0,
-        start_month: null,
-        end_month: null,
+        masked_number: '',
+        interest_rate_annual: null,
+        monthly_fee: null,
+        overdraft_limit: null,
       });
     } else if (activeTab === 'credit_cards') {
       setFormData({
@@ -151,28 +123,6 @@ export default function SettingsPage() {
         start_month: null,
         end_month: null,
       });
-    } else if (activeTab === 'loans_given') {
-      setFormData({
-        debtor_name: '',
-        amount: 0,
-        currency_id: currencies[0]?.id || '',
-        loan_date: new Date().toISOString().split('T')[0],
-        due_date: null,
-        interest_rate: 0,
-        start_month: null,
-        end_month: null,
-      });
-    } else if (activeTab === 'loans_received') {
-      setFormData({
-        creditor_name: '',
-        amount: 0,
-        currency_id: currencies[0]?.id || '',
-        loan_date: new Date().toISOString().split('T')[0],
-        due_date: null,
-        interest_rate: 0,
-        start_month: null,
-        end_month: null,
-      });
     }
     setShowModal(true);
   };
@@ -183,12 +133,15 @@ export default function SettingsPage() {
     if (activeTab === 'accounts') {
       setFormData({
         name: item.name,
-        bank_name: item.bank_name || '',
-        account_type: item.account_type,
-        currency_id: item.currency_id,
-        initial_balance: Number(item.initial_balance),
-        start_month: item.start_month,
-        end_month: item.end_month,
+        currency_code: item.currency_code || 'COP',
+        institution_name: item.institution_name || '',
+        opened_at: item.opened_at || '',
+        kind: item.bank_account_details?.kind || 'SAVINGS',
+        bank_name: item.bank_account_details?.bank_name || '',
+        masked_number: item.bank_account_details?.masked_number || '',
+        interest_rate_annual: item.bank_account_details?.interest_rate_annual || null,
+        monthly_fee: item.bank_account_details?.monthly_fee || null,
+        overdraft_limit: item.bank_account_details?.overdraft_limit || null,
       });
     } else if (activeTab === 'credit_cards') {
       setFormData({
@@ -204,28 +157,6 @@ export default function SettingsPage() {
         start_month: item.start_month,
         end_month: item.end_month,
       });
-    } else if (activeTab === 'loans_given') {
-      setFormData({
-        debtor_name: item.debtor_name,
-        amount: Number(item.amount),
-        currency_id: item.currency_id,
-        loan_date: item.loan_date,
-        due_date: item.due_date || '',
-        interest_rate: Number(item.interest_rate),
-        start_month: item.start_month,
-        end_month: item.end_month,
-      });
-    } else if (activeTab === 'loans_received') {
-      setFormData({
-        creditor_name: item.creditor_name,
-        amount: Number(item.amount),
-        currency_id: item.currency_id,
-        loan_date: item.loan_date,
-        due_date: item.due_date || '',
-        interest_rate: Number(item.interest_rate),
-        start_month: item.start_month,
-        end_month: item.end_month,
-      });
     }
     setShowModal(true);
   };
@@ -236,30 +167,27 @@ export default function SettingsPage() {
     setSubmitting(true);
 
     try {
+      // Clean form data: convert empty strings to null for optional fields
+      const cleanedFormData = { ...formData };
+      if (activeTab === 'accounts') {
+        if (cleanedFormData.institution_name === '') cleanedFormData.institution_name = null;
+        if (cleanedFormData.opened_at === '') cleanedFormData.opened_at = null;
+        if (cleanedFormData.bank_name === '') cleanedFormData.bank_name = null;
+        if (cleanedFormData.masked_number === '') cleanedFormData.masked_number = null;
+      }
+
       let result;
       if (activeTab === 'accounts') {
         if (editingItem) {
-          result = await updateBankAccount(editingItem.id, formData);
+          result = await updateBankAccount(editingItem.id, cleanedFormData);
         } else {
-          result = await createBankAccount(formData);
+          result = await createBankAccount(cleanedFormData);
         }
       } else if (activeTab === 'credit_cards') {
         if (editingItem) {
-          result = await updateCreditCard(editingItem.id, formData);
+          result = await updateCreditCard(editingItem.id, cleanedFormData);
         } else {
-          result = await createCreditCard(formData);
-        }
-      } else if (activeTab === 'loans_given') {
-        if (editingItem) {
-          result = await updateLoanGiven(editingItem.id, formData);
-        } else {
-          result = await createLoanGiven(formData);
-        }
-      } else if (activeTab === 'loans_received') {
-        if (editingItem) {
-          result = await updateLoanReceived(editingItem.id, formData);
-        } else {
-          result = await createLoanReceived(formData);
+          result = await createCreditCard(cleanedFormData);
         }
       }
 
@@ -278,9 +206,7 @@ export default function SettingsPage() {
   };
 
   const handleDelete = async (id: string) => {
-    const itemName = activeTab === 'accounts' ? 'cuenta' : 
-                     activeTab === 'credit_cards' ? 'tarjeta de crédito' :
-                     activeTab === 'loans_given' ? 'préstamo dado' : 'préstamo recibido';
+    const itemName = activeTab === 'accounts' ? 'cuenta' : 'tarjeta de crédito';
     
     if (!confirm(`¿Estás seguro de que quieres eliminar esta ${itemName}?`)) return;
 
@@ -289,10 +215,6 @@ export default function SettingsPage() {
       result = await deleteBankAccount(id);
     } else if (activeTab === 'credit_cards') {
       result = await deleteCreditCard(id);
-    } else if (activeTab === 'loans_given') {
-      result = await deleteLoanGiven(id);
-    } else if (activeTab === 'loans_received') {
-      result = await deleteLoanReceived(id);
     }
 
     if (result && result.success) {
@@ -313,7 +235,7 @@ export default function SettingsPage() {
       {/* Header */}
       <div>
         <h1 className="text-4xl font-bold text-[#1A1A1A] mb-2">Configuración</h1>
-        <p className="text-[#6B6B6B] text-lg">Gestiona tus cuentas, tarjetas de crédito y préstamos.</p>
+        <p className="text-[#6B6B6B] text-lg">Gestiona tus cuentas y tarjetas de crédito.</p>
       </div>
 
       {/* Tabs */}
@@ -322,8 +244,6 @@ export default function SettingsPage() {
           {[
             { id: 'accounts', name: 'Cuentas Bancarias' },
             { id: 'credit_cards', name: 'Tarjetas de Crédito' },
-            { id: 'loans_given', name: 'Préstamos Dados' },
-            { id: 'loans_received', name: 'Préstamos Recibidos' },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -346,8 +266,6 @@ export default function SettingsPage() {
           <h2 className="text-2xl font-bold text-[#1A1A1A]">
             {activeTab === 'accounts' && 'Cuentas Bancarias'}
             {activeTab === 'credit_cards' && 'Tarjetas de Crédito'}
-            {activeTab === 'loans_given' && 'Préstamos Dados'}
-            {activeTab === 'loans_received' && 'Préstamos Recibidos'}
           </h2>
           <button
             onClick={openNewModal}
@@ -371,8 +289,9 @@ export default function SettingsPage() {
                   <div>
                     <h3 className="font-semibold text-[#1A1A1A]">{account.name}</h3>
                     <p className="text-sm text-[#6B6B6B]">
-                      {account.bank_name && `${account.bank_name} • `}
-                      {account.account_type === 'savings' ? 'Ahorros' : 'Corriente'} • {account.currencies?.code}
+                      {account.institution_name && `${account.institution_name} • `}
+                      {account.bank_account_details?.bank_name && `${account.bank_account_details.bank_name} • `}
+                      {account.bank_account_details?.kind === 'SAVINGS' ? 'Ahorros' : account.bank_account_details?.kind === 'CHECKING' ? 'Corriente' : ''} • {account.currency_code}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -441,83 +360,6 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {activeTab === 'loans_given' && (
-          <div className="space-y-4">
-            {loansGiven.length === 0 ? (
-              <p className="text-[#6B6B6B] text-center py-8">No hay préstamos dados</p>
-            ) : (
-              loansGiven.map((loan) => (
-                <div key={loan.id} className="flex items-center justify-between p-4 border border-[#E5E3DE] rounded-xl hover:bg-[#F5F3EE] transition-colors">
-                  <div>
-                    <h3 className="font-semibold text-[#1A1A1A]">{loan.debtor_name}</h3>
-                    <p className="text-sm text-[#6B6B6B]">
-                      {formatCurrency(Number(loan.amount), loan.currencies?.symbol || '$')} • {loan.currencies?.code}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => openEditModal(loan)}
-                      className="p-2 text-[#6B6B6B] hover:text-[#D97757] transition-colors"
-                      title="Editar préstamo"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                      </svg>
-                    </button>
-                    <button
-                      onClick={() => handleDelete(loan.id)}
-                      className="p-2 text-[#6B6B6B] hover:text-[#DC2626] transition-colors"
-                      title="Eliminar préstamo"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
-
-        {activeTab === 'loans_received' && (
-          <div className="space-y-4">
-            {loansReceived.length === 0 ? (
-              <p className="text-[#6B6B6B] text-center py-8">No hay préstamos recibidos</p>
-            ) : (
-              loansReceived.map((loan) => (
-                <div key={loan.id} className="flex items-center justify-between p-4 border border-[#E5E3DE] rounded-xl hover:bg-[#F5F3EE] transition-colors">
-                  <div>
-                    <h3 className="font-semibold text-[#1A1A1A]">{loan.creditor_name}</h3>
-                    <p className="text-sm text-[#6B6B6B]">
-                      {formatCurrency(Number(loan.amount), loan.currencies?.symbol || '$')} • {loan.currencies?.code}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => openEditModal(loan)}
-                      className="p-2 text-[#6B6B6B] hover:text-[#D97757] transition-colors"
-                      title="Editar préstamo"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                      </svg>
-                    </button>
-                    <button
-                      onClick={() => handleDelete(loan.id)}
-                      className="p-2 text-[#6B6B6B] hover:text-[#DC2626] transition-colors"
-                      title="Eliminar préstamo"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
       </div>
 
       {/* Modal */}
@@ -536,8 +378,6 @@ export default function SettingsPage() {
                     activeTab === 'accounts' && 'Cuenta Bancaria'
                   }
                   {activeTab === 'credit_cards' && 'Tarjeta de Crédito'}
-                  {activeTab === 'loans_given' && 'Préstamo Dado'}
-                  {activeTab === 'loans_received' && 'Préstamo Recibido'}
                 </h2>
                 <button
                   onClick={() => setShowModal(false)}
@@ -561,97 +401,134 @@ export default function SettingsPage() {
               {activeTab === 'accounts' && (
                 <>
                   <div>
-                    <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Nombre de la Cuenta</label>
+                    <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Nombre de la Cuenta *</label>
                     <input
                       type="text"
-                      value={formData.name}
+                      value={formData.name || ''}
                       onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                       className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
+                      placeholder="Ej: Cuenta de Ahorros Principal"
                       required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Nombre del Banco (Opcional)</label>
-                    <input
-                      type="text"
-                      value={formData.bank_name}
-                      onChange={(e) => setFormData({ ...formData, bank_name: e.target.value })}
-                      className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
                     />
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Tipo de Cuenta</label>
+                      <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Tipo de Cuenta *</label>
                       <select
-                        value={formData.account_type}
-                        onChange={(e) => setFormData({ ...formData, account_type: e.target.value })}
+                        value={formData.kind || 'SAVINGS'}
+                        onChange={(e) => setFormData({ ...formData, kind: e.target.value })}
                         className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
                         required
                       >
-                        <option value="savings">Ahorros</option>
-                        <option value="checking">Corriente</option>
+                        <option value="SAVINGS">Ahorros</option>
+                        <option value="CHECKING">Corriente</option>
                       </select>
                     </div>
 
                     <div>
-                      <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Moneda</label>
+                      <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Moneda *</label>
                       <select
-                        value={formData.currency_id}
-                        onChange={(e) => setFormData({ ...formData, currency_id: e.target.value })}
+                        value={formData.currency_code || ''}
+                        onChange={(e) => setFormData({ ...formData, currency_code: e.target.value as Currency })}
                         className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
                         required
                       >
                         <option value="">Seleccionar moneda</option>
-                        {currencies.map((currency) => (
-                          <option key={currency.id} value={currency.id}>
-                            {currency.code} - {currency.name}
+                        {CURRENCY_OPTIONS.map((currency) => (
+                          <option key={currency.value} value={currency.value}>
+                            {currency.label}
                           </option>
                         ))}
                       </select>
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Balance Inicial</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={formData.initial_balance}
-                      onChange={(e) => setFormData({ ...formData, initial_balance: parseFloat(e.target.value) || 0 })}
-                      className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
-                      required
-                    />
-                  </div>
-
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Mes de Inicio (Opcional)</label>
-                      <select
-                        value={formData.start_month || ''}
-                        onChange={(e) => setFormData({ ...formData, start_month: e.target.value ? parseInt(e.target.value) : null })}
+                      <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Institución Financiera (Opcional)</label>
+                      <input
+                        type="text"
+                        value={formData.institution_name || ''}
+                        onChange={(e) => setFormData({ ...formData, institution_name: e.target.value || null })}
                         className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
-                      >
-                        <option value="">Seleccionar mes</option>
-                        {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => (
-                          <option key={m} value={m}>{['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][m-1]}</option>
-                        ))}
-                      </select>
+                        placeholder="Ej: Bancolombia"
+                      />
                     </div>
 
                     <div>
-                      <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Mes de Fin (Opcional)</label>
-                      <select
-                        value={formData.end_month || ''}
-                        onChange={(e) => setFormData({ ...formData, end_month: e.target.value ? parseInt(e.target.value) : null })}
+                      <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Banco (Opcional)</label>
+                      <input
+                        type="text"
+                        value={formData.bank_name || ''}
+                        onChange={(e) => setFormData({ ...formData, bank_name: e.target.value || null })}
                         className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
-                      >
-                        <option value="">Seleccionar mes</option>
-                        {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => (
-                          <option key={m} value={m}>{['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][m-1]}</option>
-                        ))}
-                      </select>
+                        placeholder="Ej: Banco de Bogotá"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Número de Cuenta Enmascarado (Opcional)</label>
+                    <input
+                      type="text"
+                      value={formData.masked_number || ''}
+                      onChange={(e) => setFormData({ ...formData, masked_number: e.target.value || null })}
+                      className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
+                      placeholder="Ej: ****1234"
+                      maxLength={20}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Fecha de Apertura (Opcional)</label>
+                    <input
+                      type="date"
+                      value={formData.opened_at || ''}
+                      onChange={(e) => setFormData({ ...formData, opened_at: e.target.value || null })}
+                      className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div>
+                      <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Tasa de Interés Anual % (Opcional)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max="100"
+                        value={formData.interest_rate_annual || ''}
+                        onChange={(e) => setFormData({ ...formData, interest_rate_annual: e.target.value ? parseFloat(e.target.value) : null })}
+                        className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
+                        placeholder="0.00"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Cuota Mensual (Opcional)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={formData.monthly_fee || ''}
+                        onChange={(e) => setFormData({ ...formData, monthly_fee: e.target.value ? parseFloat(e.target.value) : null })}
+                        className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
+                        placeholder="0.00"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Límite de Sobregiro (Opcional)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={formData.overdraft_limit || ''}
+                        onChange={(e) => setFormData({ ...formData, overdraft_limit: e.target.value ? parseFloat(e.target.value) : null })}
+                        className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
+                        placeholder="0.00"
+                      />
                     </div>
                   </div>
                 </>
@@ -807,227 +684,6 @@ export default function SettingsPage() {
                 </>
               )}
 
-              {/* Loan Given Form */}
-              {activeTab === 'loans_given' && (
-                <>
-                  <div>
-                    <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Nombre del Deudor</label>
-                    <input
-                      type="text"
-                      value={formData.debtor_name}
-                      onChange={(e) => setFormData({ ...formData, debtor_name: e.target.value })}
-                      className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
-                      required
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Monto</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={formData.amount}
-                        onChange={(e) => setFormData({ ...formData, amount: parseFloat(e.target.value) || 0 })}
-                        className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Moneda</label>
-                      <select
-                        value={formData.currency_id}
-                        onChange={(e) => setFormData({ ...formData, currency_id: e.target.value })}
-                        className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
-                        required
-                      >
-                        <option value="">Seleccionar moneda</option>
-                        {currencies.map((currency) => (
-                          <option key={currency.id} value={currency.id}>
-                            {currency.code} - {currency.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Fecha del Préstamo</label>
-                      <input
-                        type="date"
-                        value={formData.loan_date}
-                        onChange={(e) => setFormData({ ...formData, loan_date: e.target.value })}
-                        className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Fecha de Vencimiento (Opcional)</label>
-                      <input
-                        type="date"
-                        value={formData.due_date || ''}
-                        onChange={(e) => setFormData({ ...formData, due_date: e.target.value || null })}
-                        className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Tasa de Interés %</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={formData.interest_rate}
-                      onChange={(e) => setFormData({ ...formData, interest_rate: parseFloat(e.target.value) || 0 })}
-                      className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Mes de Inicio (Opcional)</label>
-                      <select
-                        value={formData.start_month || ''}
-                        onChange={(e) => setFormData({ ...formData, start_month: e.target.value ? parseInt(e.target.value) : null })}
-                        className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
-                      >
-                        <option value="">Seleccionar mes</option>
-                        {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => (
-                          <option key={m} value={m}>{['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][m-1]}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Mes de Fin (Opcional)</label>
-                      <select
-                        value={formData.end_month || ''}
-                        onChange={(e) => setFormData({ ...formData, end_month: e.target.value ? parseInt(e.target.value) : null })}
-                        className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
-                      >
-                        <option value="">Seleccionar mes</option>
-                        {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => (
-                          <option key={m} value={m}>{['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][m-1]}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {/* Loan Received Form */}
-              {activeTab === 'loans_received' && (
-                <>
-                  <div>
-                    <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Nombre del Acreedor</label>
-                    <input
-                      type="text"
-                      value={formData.creditor_name}
-                      onChange={(e) => setFormData({ ...formData, creditor_name: e.target.value })}
-                      className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
-                      required
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Monto</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={formData.amount}
-                        onChange={(e) => setFormData({ ...formData, amount: parseFloat(e.target.value) || 0 })}
-                        className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Moneda</label>
-                      <select
-                        value={formData.currency_id}
-                        onChange={(e) => setFormData({ ...formData, currency_id: e.target.value })}
-                        className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
-                        required
-                      >
-                        <option value="">Seleccionar moneda</option>
-                        {currencies.map((currency) => (
-                          <option key={currency.id} value={currency.id}>
-                            {currency.code} - {currency.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Fecha del Préstamo</label>
-                      <input
-                        type="date"
-                        value={formData.loan_date}
-                        onChange={(e) => setFormData({ ...formData, loan_date: e.target.value })}
-                        className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Fecha de Vencimiento (Opcional)</label>
-                      <input
-                        type="date"
-                        value={formData.due_date || ''}
-                        onChange={(e) => setFormData({ ...formData, due_date: e.target.value || null })}
-                        className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Tasa de Interés %</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={formData.interest_rate}
-                      onChange={(e) => setFormData({ ...formData, interest_rate: parseFloat(e.target.value) || 0 })}
-                      className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Mes de Inicio (Opcional)</label>
-                      <select
-                        value={formData.start_month || ''}
-                        onChange={(e) => setFormData({ ...formData, start_month: e.target.value ? parseInt(e.target.value) : null })}
-                        className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
-                      >
-                        <option value="">Seleccionar mes</option>
-                        {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => (
-                          <option key={m} value={m}>{['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][m-1]}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Mes de Fin (Opcional)</label>
-                      <select
-                        value={formData.end_month || ''}
-                        onChange={(e) => setFormData({ ...formData, end_month: e.target.value ? parseInt(e.target.value) : null })}
-                        className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
-                      >
-                        <option value="">Seleccionar mes</option>
-                        {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => (
-                          <option key={m} value={m}>{['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][m-1]}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                </>
-              )}
 
               <div className="flex gap-4 pt-4">
                 <button

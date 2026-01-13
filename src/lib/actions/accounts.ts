@@ -71,7 +71,22 @@ export async function createBankAccount(data: unknown): Promise<ActionResult<Acc
       return { success: false, error: 'Unauthorized' };
     }
 
-    const validated = createBankAccountSchema.parse(data);
+    // Transform data format if needed
+    const dataWithCurrency = data as any;
+    
+    // currency_code should come directly from the enum (USD or COP)
+    // If currency_id is provided but currency_code is not, we can't convert
+    if (dataWithCurrency.currency_id && !dataWithCurrency.currency_code) {
+      return { success: false, error: 'Currency code is required. Please use currency_code (USD or COP) from the enum.' };
+    }
+
+    // Map account_type to kind (SAVINGS/CHECKING)
+    if (dataWithCurrency.account_type && !dataWithCurrency.kind) {
+      dataWithCurrency.kind = dataWithCurrency.account_type.toUpperCase();
+      delete dataWithCurrency.account_type;
+    }
+
+    const validated = createBankAccountSchema.parse(dataWithCurrency);
     
     // Get BANK_ACCOUNT account type
     const bankAccountType = await accountRepository.getAccountTypeByCode('BANK_ACCOUNT');
@@ -102,14 +117,41 @@ export async function createBankAccount(data: unknown): Promise<ActionResult<Acc
     revalidatePath('/accounts');
 
     return { success: true, data: account };
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error creating account:', error);
     
-    if (error instanceof Error && 'issues' in error) {
-      return { success: false, error: 'Validation error', details: error };
+    // Handle validation errors
+    if (error && 'issues' in error) {
+      const zodError = error as any;
+      const errorMessages = zodError.issues?.map((issue: any) => 
+        `${issue.path.join('.')}: ${issue.message}`
+      ).join(', ') || 'Validation error';
+      // Convert issues to plain objects to avoid Client Component serialization issues
+      const plainIssues = zodError.issues?.map((issue: any) => ({
+        path: issue.path,
+        message: issue.message,
+        code: issue.code,
+      })) || [];
+      return { success: false, error: errorMessages, details: plainIssues };
     }
 
-    return { success: false, error: 'Failed to create account' };
+    // Handle Supabase RLS/permission errors
+    if (error?.code === '42501' || error?.message?.includes('permission denied')) {
+      return { 
+        success: false, 
+        error: 'Permission denied. Please check that Row Level Security (RLS) policies are configured correctly in Supabase.' 
+      };
+    }
+
+    // Handle other Supabase errors
+    if (error?.code) {
+      return { 
+        success: false, 
+        error: error.message || `Database error: ${error.code}` 
+      };
+    }
+
+    return { success: false, error: error?.message || 'Failed to create account' };
   }
 }
 
@@ -123,7 +165,22 @@ export async function updateBankAccount(
       return { success: false, error: 'Unauthorized' };
     }
 
-    const validated = updateBankAccountSchema.parse(data);
+    // Transform data format if needed
+    const dataWithCurrency = data as any;
+    
+    // currency_code should come directly from the enum (USD or COP)
+    // If currency_id is provided but currency_code is not, we can't convert
+    if (dataWithCurrency.currency_id && !dataWithCurrency.currency_code) {
+      return { success: false, error: 'Currency code is required. Please use currency_code (USD or COP) from the enum.' };
+    }
+
+    // Map account_type to kind (SAVINGS/CHECKING) if needed
+    if (dataWithCurrency.account_type && !dataWithCurrency.kind) {
+      dataWithCurrency.kind = dataWithCurrency.account_type.toUpperCase();
+      delete dataWithCurrency.account_type;
+    }
+
+    const validated = updateBankAccountSchema.parse(dataWithCurrency);
 
     // Separate account updates from details updates
     const { kind, bank_name, masked_number, interest_rate_annual, monthly_fee, overdraft_limit, ...accountUpdates } = validated;

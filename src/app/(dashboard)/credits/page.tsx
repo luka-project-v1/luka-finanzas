@@ -6,14 +6,6 @@ import {
   createCreditCard, 
   updateCreditCard, 
   deleteCreditCard,
-  getLoansGiven,
-  createLoanGiven,
-  updateLoanGiven,
-  deleteLoanGiven,
-  getLoansReceived,
-  createLoanReceived,
-  updateLoanReceived,
-  deleteLoanReceived,
   setCreditCardMonthlyInitialBalance,
   getCreditCardTransactions,
 } from '@/lib/actions/credits';
@@ -22,13 +14,11 @@ import { formatCurrency, formatCOP, convertToCOP, addAmounts, subtractAmounts } 
 import { getCurrentDate, formatDate } from '@/lib/utils/date';
 import { useMonthYear } from '@/lib/contexts/MonthYearContext';
 
-type TabType = 'credit_cards' | 'loans_given' | 'loans_received';
+type TabType = 'credit_cards';
 
 export default function CreditsPage() {
   const [activeTab, setActiveTab] = useState<TabType>('credit_cards');
   const [creditCards, setCreditCards] = useState<any[]>([]);
-  const [loansGiven, setLoansGiven] = useState<any[]>([]);
-  const [loansReceived, setLoansReceived] = useState<any[]>([]);
   const [currencies, setCurrencies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -66,16 +56,12 @@ export default function CreditsPage() {
 
   const loadData = async () => {
     setLoading(true);
-    const [cardsResult, loansGivenResult, loansReceivedResult, currResult] = await Promise.all([
+    const [cardsResult, currResult] = await Promise.all([
       getCreditCards(),
-      getLoansGiven(),
-      getLoansReceived(),
       getOrCreateDefaultCurrencies(),
     ]);
 
     if (cardsResult.success && 'data' in cardsResult) setCreditCards(cardsResult.data || []);
-    if (loansGivenResult.success && 'data' in loansGivenResult) setLoansGiven(loansGivenResult.data || []);
-    if (loansReceivedResult.success && 'data' in loansReceivedResult) setLoansReceived(loansReceivedResult.data || []);
     if (currResult.success && 'data' in currResult) {
       setCurrencies(currResult.data as any[]);
       if (currResult.data && (currResult.data as any[]).length > 0 && !formData.currency_id) {
@@ -176,46 +162,20 @@ export default function CreditsPage() {
 
   const openNewModal = () => {
     setEditingItem(null);
-    if (activeTab === 'credit_cards') {
-      setFormData({
-        name: '',
-        bank_name: '',
-        credit_limit: 0,
-        current_balance: 0,
-        currency_id: currencies[0]?.id || '',
-        annual_interest_rate: null,
-        maintenance_fee: 0,
-        maintenance_fee_frequency: null,
-        closing_day: null,
-        payment_due_day: null,
-        start_month: null,
-        end_month: null,
-      });
-    } else if (activeTab === 'loans_given') {
-      setFormData({
-        debtor_name: '',
-        amount: 0,
-        currency_id: currencies[0]?.id || '',
-        loan_date: getCurrentDate(),
-        due_date: null,
-        interest_rate: 0,
-        notes: '',
-        start_month: null,
-        end_month: null,
-      });
-    } else {
-      setFormData({
-        creditor_name: '',
-        amount: 0,
-        currency_id: currencies[0]?.id || '',
-        loan_date: getCurrentDate(),
-        due_date: null,
-        interest_rate: 0,
-        notes: '',
-        start_month: null,
-        end_month: null,
-      });
-    }
+    setFormData({
+      name: '',
+      bank_name: '',
+      credit_limit: 0,
+      current_balance: 0,
+      currency_id: currencies[0]?.id || '',
+      annual_interest_rate: null,
+      maintenance_fee: 0,
+      maintenance_fee_frequency: null,
+      closing_day: null,
+      payment_due_day: null,
+      start_month: null,
+      end_month: null,
+    });
     setShowModal(true);
     setError('');
   };
@@ -234,24 +194,10 @@ export default function CreditsPage() {
 
     try {
       let result;
-      if (activeTab === 'credit_cards') {
-        if (editingItem) {
-          result = await updateCreditCard(editingItem.id, formData);
-        } else {
-          result = await createCreditCard(formData);
-        }
-      } else if (activeTab === 'loans_given') {
-        if (editingItem) {
-          result = await updateLoanGiven(editingItem.id, formData);
-        } else {
-          result = await createLoanGiven(formData);
-        }
+      if (editingItem) {
+        result = await updateCreditCard(editingItem.id, formData);
       } else {
-        if (editingItem) {
-          result = await updateLoanReceived(editingItem.id, formData);
-        } else {
-          result = await createLoanReceived(formData);
-        }
+        result = await createCreditCard(formData);
       }
 
       if (result.success) {
@@ -268,16 +214,9 @@ export default function CreditsPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('¿Estás seguro de eliminar este elemento?')) return;
+    if (!confirm('¿Estás seguro de eliminar esta tarjeta de crédito?')) return;
 
-    let result;
-    if (activeTab === 'credit_cards') {
-      result = await deleteCreditCard(id);
-    } else if (activeTab === 'loans_given') {
-      result = await deleteLoanGiven(id);
-    } else {
-      result = await deleteLoanReceived(id);
-    }
+    const result = await deleteCreditCard(id);
 
     if (result.success) {
       await loadData();
@@ -300,7 +239,7 @@ export default function CreditsPage() {
       <div className="flex items-end justify-between">
         <div>
           <h1 className="text-4xl font-bold text-[#1A1A1A] mb-2">Créditos y Deudas</h1>
-          <p className="text-[#6B6B6B] text-lg">Gestiona tus tarjetas de crédito y préstamos.</p>
+          <p className="text-[#6B6B6B] text-lg">Gestiona tus tarjetas de crédito.</p>
         </div>
         <button
           onClick={openNewModal}
@@ -309,70 +248,19 @@ export default function CreditsPage() {
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
-          {activeTab === 'credit_cards' && 'Nueva Tarjeta'}
-          {activeTab === 'loans_given' && 'Nuevo Préstamo Dado'}
-          {activeTab === 'loans_received' && 'Nuevo Préstamo Recibido'}
+          Nueva Tarjeta
         </button>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-2 border-b border-[#E5E3DE]">
-        <button
-          onClick={() => setActiveTab('credit_cards')}
-          className={`px-6 py-3 font-semibold transition-all border-b-2 ${
-            activeTab === 'credit_cards'
-              ? 'text-[#D97757] border-[#D97757]'
-              : 'text-[#6B6B6B] border-transparent hover:text-[#1A1A1A]'
-          }`}
-        >
-          Tarjetas de Crédito ({creditCards.length})
-        </button>
-        <button
-          onClick={() => setActiveTab('loans_given')}
-          className={`px-6 py-3 font-semibold transition-all border-b-2 ${
-            activeTab === 'loans_given'
-              ? 'text-[#D97757] border-[#D97757]'
-              : 'text-[#6B6B6B] border-transparent hover:text-[#1A1A1A]'
-          }`}
-        >
-          Préstamos Dados ({loansGiven.length})
-        </button>
-        <button
-          onClick={() => setActiveTab('loans_received')}
-          className={`px-6 py-3 font-semibold transition-all border-b-2 ${
-            activeTab === 'loans_received'
-              ? 'text-[#D97757] border-[#D97757]'
-              : 'text-[#6B6B6B] border-transparent hover:text-[#1A1A1A]'
-          }`}
-        >
-          Préstamos Recibidos ({loansReceived.length})
-        </button>
-      </div>
 
       {/* Content */}
       <div className="bg-white rounded-2xl shadow-sm p-8">
-        {activeTab === 'credit_cards' && (
-          <CreditCardsList 
-            creditCards={creditCards} 
-            onEdit={openEditModal}
-            onDelete={handleDelete}
-            onViewHistory={openBalanceModal}
-          />
-        )}
-        {activeTab === 'loans_given' && (
-          <LoansGivenList 
-            loans={loansGiven} 
-            onEdit={openEditModal}
-            onDelete={handleDelete}
-          />
-        )}
-        {activeTab === 'loans_received' && (
-          <LoansReceivedList 
-            loans={loansReceived} 
-            onEdit={openEditModal}
-            onDelete={handleDelete}
-          />
-        )}
+        <CreditCardsList 
+          creditCards={creditCards} 
+          onEdit={openEditModal}
+          onDelete={handleDelete}
+          onViewHistory={openBalanceModal}
+        />
       </div>
 
       {/* Modal */}
@@ -521,178 +409,6 @@ function CreditCardsList({ creditCards, onEdit, onDelete, onViewHistory }: any) 
   );
 }
 
-// Loans Given List Component
-function LoansGivenList({ loans, onEdit, onDelete }: any) {
-  if (loans.length === 0) {
-    return (
-      <div className="text-center py-12">
-        <p className="text-[#6B6B6B] mb-6">Aún no hay préstamos dados</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      {loans.map((loan: any) => {
-        const amountPaid = Number(loan.amount_paid);
-        const totalAmount = Number(loan.amount);
-        const remaining = totalAmount - amountPaid;
-        const progressPercentage = (amountPaid / totalAmount) * 100;
-
-        return (
-          <div key={loan.id} className="border border-[#E5E3DE] rounded-xl p-6">
-            <div className="flex items-start justify-between mb-4">
-              <div>
-                <h3 className="font-semibold text-xl text-[#1A1A1A] mb-1">{loan.debtor_name}</h3>
-                <p className="text-sm text-[#6B6B6B]">
-                  Prestado: {formatCurrency(totalAmount, loan.currencies?.symbol || '$')}
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => onEdit(loan)}
-                  className="p-2 text-[#D97757] hover:bg-[#D97757]/10 rounded-lg transition-all"
-                  title="Editar"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                  </svg>
-                </button>
-                <button
-                  onClick={() => onDelete(loan.id)}
-                  className="p-2 text-[#DC2626] hover:bg-[#DC2626]/10 rounded-lg transition-all"
-                  title="Eliminar"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div className="flex justify-between">
-                <span className="text-sm text-[#6B6B6B]">Pagado:</span>
-                <span className="font-semibold text-[#4CAF50]">
-                  {formatCurrency(amountPaid, loan.currencies?.symbol || '$')}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-[#6B6B6B]">Pendiente:</span>
-                <span className="font-semibold text-[#DC2626]">
-                  {formatCurrency(remaining, loan.currencies?.symbol || '$')}
-                </span>
-              </div>
-              <div className="w-full bg-[#E5E3DE] rounded-full h-2">
-                <div
-                  className="bg-[#4CAF50] h-2 rounded-full transition-all"
-                  style={{ width: `${Math.min(progressPercentage, 100)}%` }}
-                ></div>
-              </div>
-              {loan.due_date && (
-                <p className="text-xs text-[#6B6B6B]">
-                  Vencimiento: {new Date(loan.due_date).toLocaleDateString('es-CO')}
-                </p>
-              )}
-              {loan.is_fully_paid && (
-                <span className="inline-block px-3 py-1 bg-[#4CAF50]/10 text-[#4CAF50] rounded-full text-xs font-medium">
-                  Pagado completamente
-                </span>
-              )}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// Loans Received List Component
-function LoansReceivedList({ loans, onEdit, onDelete }: any) {
-  if (loans.length === 0) {
-    return (
-      <div className="text-center py-12">
-        <p className="text-[#6B6B6B] mb-6">Aún no hay préstamos recibidos</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      {loans.map((loan: any) => {
-        const amountPaid = Number(loan.amount_paid);
-        const totalAmount = Number(loan.amount);
-        const remaining = totalAmount - amountPaid;
-        const progressPercentage = (amountPaid / totalAmount) * 100;
-
-        return (
-          <div key={loan.id} className="border border-[#E5E3DE] rounded-xl p-6">
-            <div className="flex items-start justify-between mb-4">
-              <div>
-                <h3 className="font-semibold text-xl text-[#1A1A1A] mb-1">{loan.creditor_name}</h3>
-                <p className="text-sm text-[#6B6B6B]">
-                  Deuda: {formatCurrency(totalAmount, loan.currencies?.symbol || '$')}
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => onEdit(loan)}
-                  className="p-2 text-[#D97757] hover:bg-[#D97757]/10 rounded-lg transition-all"
-                  title="Editar"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                  </svg>
-                </button>
-                <button
-                  onClick={() => onDelete(loan.id)}
-                  className="p-2 text-[#DC2626] hover:bg-[#DC2626]/10 rounded-lg transition-all"
-                  title="Eliminar"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div className="flex justify-between">
-                <span className="text-sm text-[#6B6B6B]">Pagado:</span>
-                <span className="font-semibold text-[#4CAF50]">
-                  {formatCurrency(amountPaid, loan.currencies?.symbol || '$')}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm text-[#6B6B6B]">Pendiente:</span>
-                <span className="font-semibold text-[#DC2626]">
-                  {formatCurrency(remaining, loan.currencies?.symbol || '$')}
-                </span>
-              </div>
-              <div className="w-full bg-[#E5E3DE] rounded-full h-2">
-                <div
-                  className="bg-[#4CAF50] h-2 rounded-full transition-all"
-                  style={{ width: `${Math.min(progressPercentage, 100)}%` }}
-                ></div>
-              </div>
-              {loan.due_date && (
-                <p className="text-xs text-[#6B6B6B]">
-                  Vencimiento: {new Date(loan.due_date).toLocaleDateString('es-CO')}
-                </p>
-              )}
-              {loan.is_fully_paid && (
-                <span className="inline-block px-3 py-1 bg-[#4CAF50]/10 text-[#4CAF50] rounded-full text-xs font-medium">
-                  Pagado completamente
-                </span>
-              )}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 // Modal Component
 function CreditsModal({ activeTab, editingItem, formData, setFormData, currencies, error, submitting, onSubmit, onClose }: any) {
   return (
@@ -706,10 +422,7 @@ function CreditsModal({ activeTab, editingItem, formData, setFormData, currencie
         <div className="sticky top-0 bg-white border-b border-[#E5E3DE] px-8 py-6 rounded-t-3xl z-10">
           <div className="flex items-center justify-between">
             <h2 className="text-3xl font-bold text-[#1A1A1A]">
-              {editingItem ? 'Editar' : 'Nueva'}{' '}
-              {activeTab === 'credit_cards' && 'Tarjeta de Crédito'}
-              {activeTab === 'loans_given' && 'Préstamo Dado'}
-              {activeTab === 'loans_received' && 'Préstamo Recibido'}
+              {editingItem ? 'Editar' : 'Nueva'} Tarjeta de Crédito
             </h2>
             <button
               onClick={onClose}
@@ -729,7 +442,7 @@ function CreditsModal({ activeTab, editingItem, formData, setFormData, currencie
             </div>
           )}
 
-          {activeTab === 'credit_cards' && (
+          {(
             <>
               <div>
                 <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Nombre de la Tarjeta</label>
@@ -826,136 +539,6 @@ function CreditsModal({ activeTab, editingItem, formData, setFormData, currencie
                     placeholder="20"
                   />
                 </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Mes de Inicio (Opcional)</label>
-                  <select
-                    value={formData.start_month || ''}
-                    onChange={(e) => setFormData({ ...formData, start_month: e.target.value ? parseInt(e.target.value) : null })}
-                    className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
-                  >
-                    <option value="">Seleccionar mes</option>
-                    <option value="1">Enero</option>
-                    <option value="2">Febrero</option>
-                    <option value="3">Marzo</option>
-                    <option value="4">Abril</option>
-                    <option value="5">Mayo</option>
-                    <option value="6">Junio</option>
-                    <option value="7">Julio</option>
-                    <option value="8">Agosto</option>
-                    <option value="9">Septiembre</option>
-                    <option value="10">Octubre</option>
-                    <option value="11">Noviembre</option>
-                    <option value="12">Diciembre</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Mes de Fin (Opcional)</label>
-                  <select
-                    value={formData.end_month || ''}
-                    onChange={(e) => setFormData({ ...formData, end_month: e.target.value ? parseInt(e.target.value) : null })}
-                    className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
-                  >
-                    <option value="">Seleccionar mes</option>
-                    <option value="1">Enero</option>
-                    <option value="2">Febrero</option>
-                    <option value="3">Marzo</option>
-                    <option value="4">Abril</option>
-                    <option value="5">Mayo</option>
-                    <option value="6">Junio</option>
-                    <option value="7">Julio</option>
-                    <option value="8">Agosto</option>
-                    <option value="9">Septiembre</option>
-                    <option value="10">Octubre</option>
-                    <option value="11">Noviembre</option>
-                    <option value="12">Diciembre</option>
-                  </select>
-                </div>
-              </div>
-            </>
-          )}
-
-          {(activeTab === 'loans_given' || activeTab === 'loans_received') && (
-            <>
-              <div>
-                <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">
-                  {activeTab === 'loans_given' ? 'Nombre del Deudor' : 'Nombre del Acreedor'}
-                </label>
-                <input
-                  type="text"
-                  value={formData[activeTab === 'loans_given' ? 'debtor_name' : 'creditor_name'] || ''}
-                  onChange={(e) => setFormData({ ...formData, [activeTab === 'loans_given' ? 'debtor_name' : 'creditor_name']: e.target.value })}
-                  className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
-                  required
-                />
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Monto</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={formData.amount || 0}
-                    onChange={(e) => setFormData({ ...formData, amount: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Moneda</label>
-                  <select
-                    value={formData.currency_id || ''}
-                    onChange={(e) => setFormData({ ...formData, currency_id: e.target.value })}
-                    className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
-                    required
-                  >
-                    <option value="">Seleccionar moneda</option>
-                    {currencies.map((currency: any) => (
-                      <option key={currency.id} value={currency.id}>
-                        {currency.code} - {currency.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Fecha del Préstamo</label>
-                  <input
-                    type="date"
-                    value={formData.loan_date || ''}
-                    onChange={(e) => setFormData({ ...formData, loan_date: e.target.value })}
-                    className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Fecha de Vencimiento (Opcional)</label>
-                  <input
-                    type="date"
-                    value={formData.due_date || ''}
-                    onChange={(e) => setFormData({ ...formData, due_date: e.target.value || null })}
-                    className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Tasa de Interés (%)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={formData.interest_rate || 0}
-                    onChange={(e) => setFormData({ ...formData, interest_rate: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-[#1A1A1A] mb-3">Notas (Opcional)</label>
-                <textarea
-                  value={formData.notes || ''}
-                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  className="w-full px-4 py-4 rounded-xl border border-[#E5E3DE] focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all resize-none"
-                  rows={3}
-                />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
