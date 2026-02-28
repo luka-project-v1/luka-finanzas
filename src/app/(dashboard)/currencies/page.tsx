@@ -1,4 +1,4 @@
-import { getCurrencies } from '@/lib/actions/currencies';
+import { getOrCreateDefaultCurrencies } from '@/lib/actions/currencies';
 import { CurrenciesView } from './_components/currencies-view';
 
 export const metadata = {
@@ -6,7 +6,7 @@ export const metadata = {
 };
 
 export default async function CurrenciesPage() {
-  const result = await getCurrencies();
+  const result = await getOrCreateDefaultCurrencies();
   const currencies = result.success ? result.data : [];
 
   return <CurrenciesView currencies={currencies} />;

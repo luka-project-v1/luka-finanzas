@@ -1,25 +1,31 @@
 'use client';
 
 import { useState, useTransition, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
 import {
   Plus,
   ArrowUpRight,
   ArrowDownRight,
   ArrowLeftRight,
-  Tag,
   ChevronLeft,
   ChevronRight,
   ReceiptText,
   SlidersHorizontal,
   X,
+  History,
 } from 'lucide-react';
+import { getLastAdjustmentDates } from '@/lib/actions/transactions';
 import { format } from 'date-fns';
 import { getTransactions } from '@/lib/actions/transactions';
 import { formatCurrency } from '@/lib/utils/currency';
 import { formatDate } from '@/lib/utils/date';
 import { cn } from '@/lib/utils/cn';
 import { Input, Select } from '@/components/ui/form-fields';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { CreateTransactionDialog } from './create-transaction-dialog';
 import type { TransactionWithRelations } from '@/lib/repositories/transaction-repository';
 import type { AccountWithDetails } from '@/lib/repositories/account-repository';
@@ -222,10 +228,25 @@ function FilterBar({ filters, accounts, categories, isPending, onChange, onClear
   );
 }
 
+// ─── Historical badge ───────────────────────────────────────────────────────
+function HistoricalBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider border bg-neu-raised text-neu-muted border-neu cursor-default">
+      <History className="w-2.5 h-2.5" strokeWidth={2} />
+      Histórico
+    </span>
+  );
+}
+
 // ─── Table row ─────────────────────────────────────────────────────────────
-function TransactionRow({ tx, categories }: {
+function TransactionRow({
+  tx,
+  categories,
+  lastAdjustmentByAccount,
+}: {
   tx: TransactionWithRelations;
   categories: Category[];
+  lastAdjustmentByAccount: Record<string, { date: string; id: string }>;
 }) {
   const signed = Number(tx.signed_amount ?? 0);
   const isIncome = signed > 0;
@@ -233,15 +254,25 @@ function TransactionRow({ tx, categories }: {
   const category = categories.find((c) => c.id === tx.category_id);
   const account = tx.accounts as any;
 
-  return (
-    <tr className="
-      group border-b border-[#1a1a1a] last:border-0
-      hover:bg-[#161616]/60 transition-colors duration-100
-    ">
+  // A row is "historical" (does not affect the current balance) when:
+  //  - It is an ADJUSTMENT and it is NOT the most recent one for its account, OR
+  //  - It is any other kind whose occurred_at is <= the most recent adjustment's date.
+  const lastAdj = tx.account_id ? lastAdjustmentByAccount[tx.account_id] : undefined;
+  const isHistorical = !!lastAdj && !!tx.occurred_at && (
+    tx.kind === 'ADJUSTMENT'
+      ? tx.id !== lastAdj.id
+      : tx.occurred_at <= lastAdj.date
+  );
+
+  const rowContent = (
+    <tr className={cn(
+      'group border-b border-[#1a1a1a] last:border-0',
+      'hover:bg-[#161616]/60 transition-colors duration-100',
+      isHistorical && 'opacity-40 grayscale',
+    )}>
       {/* Category + Description */}
       <td className="px-5 py-4">
         <div className="flex items-center gap-3">
-          {/* Kind icon or category dot */}
           {category ? (
             <div
               className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 shadow-soft-out"
@@ -254,12 +285,18 @@ function TransactionRow({ tx, categories }: {
           )}
 
           <div className="min-w-0">
-            <p className="text-sm font-medium text-white/80 truncate max-w-[200px]">
+            <p className={cn(
+              'text-sm font-medium truncate max-w-[200px]',
+              isHistorical ? 'text-white/40 line-through decoration-white/20' : 'text-white/80',
+            )}>
               {tx.description || '—'}
             </p>
-            <p className="text-xs text-neu-muted truncate">
-              {category?.name ?? (KIND_LABELS[tx.kind] ?? tx.kind)}
-            </p>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <p className="text-xs text-neu-muted truncate">
+                {category?.name ?? (KIND_LABELS[tx.kind] ?? tx.kind)}
+              </p>
+              {isHistorical && <HistoricalBadge />}
+            </div>
           </div>
         </div>
       </td>
@@ -293,17 +330,32 @@ function TransactionRow({ tx, categories }: {
       <td className="px-5 py-4 text-right whitespace-nowrap">
         <span className={cn(
           'text-sm font-semibold tabular-nums',
-          isNeutral
-            ? 'text-white/60'
-            : isIncome
-              ? 'text-luka-income'
-              : 'text-luka-expense',
+          isHistorical
+            ? 'text-white/30 line-through decoration-white/20'
+            : isNeutral
+              ? 'text-white/60'
+              : isIncome
+                ? 'text-luka-income'
+                : 'text-luka-expense',
         )}>
           {isNeutral ? '' : isIncome ? '+' : '−'}
           {formatCurrency(Math.abs(signed), '$')}
         </span>
       </td>
     </tr>
+  );
+
+  if (!isHistorical) return rowContent;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        {rowContent}
+      </TooltipTrigger>
+      <TooltipContent side="top">
+        Este registro es histórico y no afecta el balance actual debido a un ajuste posterior.
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -398,6 +450,7 @@ interface TransactionsViewProps {
   initialTotalPages: number;
   accounts: AccountWithDetails[];
   categories: Category[];
+  initialLastAdjustmentByAccount: Record<string, { date: string; id: string }>;
 }
 
 export function TransactionsView({
@@ -406,8 +459,8 @@ export function TransactionsView({
   initialTotalPages,
   accounts,
   categories,
+  initialLastAdjustmentByAccount,
 }: TransactionsViewProps) {
-  const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
   const [transactions, setTransactions] = useState(initialTransactions);
@@ -416,6 +469,9 @@ export function TransactionsView({
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState<Filters>(defaultFilters);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [lastAdjustmentByAccount, setLastAdjustmentByAccount] = useState<
+    Record<string, { date: string; id: string }>
+  >(initialLastAdjustmentByAccount);
 
   const fetchPage = useCallback(
     (newFilters: Filters, newPage: number) => {
@@ -440,6 +496,13 @@ export function TransactionsView({
     [],
   );
 
+  const refreshAdjustmentDates = useCallback(() => {
+    const accountIds = accounts.map((a) => a.id);
+    getLastAdjustmentDates(accountIds).then((res) => {
+      if (res.success) setLastAdjustmentByAccount(res.data);
+    });
+  }, [accounts]);
+
   function handleFilterChange(f: Filters) {
     setFilters(f);
     fetchPage(f, 1);
@@ -457,6 +520,7 @@ export function TransactionsView({
 
   function handleSuccess() {
     setDialogOpen(false);
+    refreshAdjustmentDates();
     fetchPage(filters, page);
   }
 
@@ -521,11 +585,18 @@ export function TransactionsView({
                 </thead>
 
                 {/* Body */}
-                <tbody>
-                  {transactions.map((tx) => (
-                    <TransactionRow key={tx.id} tx={tx} categories={categories} />
-                  ))}
-                </tbody>
+                <TooltipProvider delayDuration={300}>
+                  <tbody>
+                    {transactions.map((tx) => (
+                      <TransactionRow
+                        key={tx.id}
+                        tx={tx}
+                        categories={categories}
+                        lastAdjustmentByAccount={lastAdjustmentByAccount}
+                      />
+                    ))}
+                  </tbody>
+                </TooltipProvider>
               </table>
             </div>
 

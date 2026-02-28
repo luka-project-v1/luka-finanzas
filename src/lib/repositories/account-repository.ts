@@ -154,10 +154,45 @@ export const accountRepository = {
     if (error) throw error;
   },
 
-  // Calculate balance from transactions (ledger-based)
+  // Calculate balance using ADJUSTMENT reconciliation logic:
+  // If a POSTED ADJUSTMENT exists, its signed_amount is the balance checkpoint.
+  // Only transactions (non-ADJUSTMENT) occurring AFTER that checkpoint are accumulated.
+  // If no ADJUSTMENT exists, all POSTED transactions are summed (legacy behaviour).
   async calculateBalance(accountId: string): Promise<number> {
     const supabase = await createClient();
-    
+
+    // Find the most recent POSTED ADJUSTMENT for this account
+    const { data: adjustmentData } = await supabase
+      .from('transactions')
+      .select('signed_amount, occurred_at')
+      .eq('account_id', accountId)
+      .eq('kind', 'ADJUSTMENT')
+      .eq('status', 'POSTED')
+      .order('occurred_at', { ascending: false })
+      .limit(1);
+
+    const lastAdjustment = adjustmentData?.[0] ?? null;
+
+    if (lastAdjustment) {
+      // Sum only non-ADJUSTMENT transactions strictly after the checkpoint
+      const { data: laterData, error: laterError } = await supabase
+        .from('transactions')
+        .select('signed_amount')
+        .eq('account_id', accountId)
+        .eq('status', 'POSTED')
+        .neq('kind', 'ADJUSTMENT')
+        .gt('occurred_at', lastAdjustment.occurred_at);
+
+      if (laterError) throw laterError;
+
+      const laterSum = (laterData || []).reduce(
+        (sum, t) => sum + Number(t.signed_amount),
+        0
+      );
+      return Number(lastAdjustment.signed_amount) + laterSum;
+    }
+
+    // No adjustment found: sum all POSTED transactions
     const { data, error } = await supabase
       .from('transactions')
       .select('signed_amount')
@@ -165,7 +200,7 @@ export const accountRepository = {
       .eq('status', 'POSTED');
 
     if (error) throw error;
-    
+
     return (data || []).reduce((sum, t) => sum + Number(t.signed_amount), 0);
   },
 

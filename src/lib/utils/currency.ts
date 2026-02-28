@@ -48,6 +48,39 @@ export function convertCurrency(
 }
 
 /**
+ * Convert an amount from one currency to another using a rate map.
+ *
+ * Rates are stored as "units of that currency per 1 USD" (the API base), e.g.:
+ *   USD → 1      (1 USD = 1 USD)
+ *   COP → 4200   (1 USD = 4200 COP)
+ *
+ * General formula: amount × (toRate / fromRate)
+ *   - COP → USD: 4_200_000 × (1 / 4200)  = 1_000     (divide by COP rate)
+ *   - USD → COP: 1_000     × (4200 / 1)  = 4_200_000 (multiply by COP rate)
+ *
+ * Returns the original amount when both codes are the same.
+ */
+export function convertToBase(
+  amount: number,
+  fromCurrencyCode: string,
+  toCurrencyCode: string,
+  rateByCode: Map<string, number>
+): number {
+  if (fromCurrencyCode === toCurrencyCode) return amount;
+
+  const fromRate = rateByCode.get(fromCurrencyCode) ?? 1;
+  const toRate = rateByCode.get(toCurrencyCode) ?? 1;
+
+  if (fromRate === 0) return 0;
+
+  return new Decimal(amount)
+    .times(toRate)
+    .dividedBy(fromRate)
+    .toDecimalPlaces(2)
+    .toNumber();
+}
+
+/**
  * Convert amount to COP using exchange rate
  */
 export function convertToCOP(amount: number, exchangeRateToCOP: number): number {

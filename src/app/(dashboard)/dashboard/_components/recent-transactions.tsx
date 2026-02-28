@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { ArrowUpRight, ArrowDownRight, ArrowLeftRight, ChevronRight, ReceiptText } from 'lucide-react';
-import { getTransactions } from '@/lib/actions/transactions';
+import { getTransactions, getLastAdjustmentDates } from '@/lib/actions/transactions';
+import { getBankAccounts } from '@/lib/actions/accounts';
 import { formatCurrency } from '@/lib/utils/currency';
 import { formatDate } from '@/lib/utils/date';
 import { cn } from '@/lib/utils/cn';
@@ -144,8 +145,34 @@ function EmptyTransactions() {
 
 // ─── Data component ────────────────────────────────────────────────────────
 export async function RecentTransactions() {
-  const result = await getTransactions({ limit: 5, page: 1 });
-  const transactions = result.success ? result.data.data : [];
+  // Fetch a larger batch so that after filtering out historical rows we still
+  // have enough to fill the 5-row preview. Historical rows are those that
+  // occurred at or before the most recent ADJUSTMENT for their account.
+  const [result, accountsResult] = await Promise.all([
+    getTransactions({ limit: 20, page: 1 }),
+    getBankAccounts(),
+  ]);
+
+  const allTransactions = result.success ? result.data.data : [];
+  const accounts = accountsResult.success ? accountsResult.data : [];
+  const accountIds = accounts.map((a) => a.id);
+
+  const adjResult = accountIds.length > 0
+    ? await getLastAdjustmentDates(accountIds)
+    : { success: true as const, data: {} as Record<string, { date: string; id: string }> };
+
+  const lastAdjMap: Record<string, { date: string; id: string }> =
+    adjResult.success ? adjResult.data : {};
+
+  // Keep only "active" (non-historical) transactions for the dashboard preview.
+  const transactions = allTransactions
+    .filter((tx) => {
+      const lastAdj = tx.account_id ? lastAdjMap[tx.account_id] : undefined;
+      if (!lastAdj || !tx.occurred_at) return true;
+      if (tx.kind === 'ADJUSTMENT') return tx.id === lastAdj.id;
+      return tx.occurred_at > lastAdj.date;
+    })
+    .slice(0, 5);
 
   return (
     <section className="space-y-4">

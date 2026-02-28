@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { accountRepository } from '@/lib/repositories/account-repository';
 import { createBankAccountSchema, updateBankAccountSchema } from '@/lib/validations/account-schema';
 import { createClient } from '@/lib/supabase/server';
+import { convertToBase } from '@/lib/utils/currency';
 import type { AccountWithDetails } from '@/lib/repositories/account-repository';
 
 type ActionResult<T> =
@@ -274,8 +275,7 @@ export async function getTotalBalanceInPreferredCurrency(): Promise<
     let total = 0;
     for (const acc of bankAccounts) {
       const balance = acc.balance ?? 0;
-      const rate = rateByCode.get(acc.currency_code) ?? 1;
-      total += balance * rate;
+      total += convertToBase(balance, acc.currency_code, preferredCode, rateByCode);
     }
 
     return {

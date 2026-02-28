@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { convertToBase } from '@/lib/utils/currency';
 import type { Database } from '@/lib/types/database.types';
 
 type Transaction = Database['public']['Tables']['transactions']['Row'];
@@ -152,18 +153,69 @@ export const transactionRepository = {
     if (error) throw error;
   },
 
+  // Returns a map of accountId → { date: ISO occurred_at, id: UUID } for the most recent
+  // POSTED ADJUSTMENT per account. The id is needed to visually distinguish the active
+  // adjustment from older (historical) adjustment rows in the UI.
+  async getLastAdjustmentPerAccount(
+    userId: string,
+    accountIds: string[]
+  ): Promise<Map<string, { date: string; id: string }>> {
+    if (accountIds.length === 0) return new Map();
+
+    const supabase = await createClient();
+
+    const { data, error } = await supabase
+      .from('transactions')
+      .select('id, account_id, occurred_at')
+      .eq('user_id', userId)
+      .eq('kind', 'ADJUSTMENT')
+      .eq('status', 'POSTED')
+      .in('account_id', accountIds)
+      .order('occurred_at', { ascending: false });
+
+    if (error) throw error;
+
+    const map = new Map<string, { date: string; id: string }>();
+    for (const t of data || []) {
+      if (t.account_id && !map.has(t.account_id)) {
+        map.set(t.account_id, { date: t.occurred_at, id: t.id });
+      }
+    }
+    return map;
+  },
+
   async getSummary(
     userId: string,
     startDate: string,
-    endDate: string
+    endDate: string,
+    rateByCode?: Map<string, number>,
+    preferredCode?: string
   ): Promise<{ totalIncome: number; totalExpense: number; balance: number }> {
     const supabase = await createClient();
-    
-    // Get all transactions in date range
-    // Exclude TRANSFER and ADJUSTMENT from income/expense calculations
+
+    // Fetch the most recent POSTED ADJUSTMENT per account so we can filter out
+    // historical (pre-adjustment) transactions from the income/expense totals.
+    const { data: adjData } = await supabase
+      .from('transactions')
+      .select('account_id, occurred_at')
+      .eq('user_id', userId)
+      .eq('kind', 'ADJUSTMENT')
+      .eq('status', 'POSTED')
+      .order('occurred_at', { ascending: false });
+
+    const lastAdjMap = new Map<string, string>();
+    for (const adj of adjData || []) {
+      if (adj.account_id && !lastAdjMap.has(adj.account_id)) {
+        lastAdjMap.set(adj.account_id, adj.occurred_at);
+      }
+    }
+
+    // Fetch transactions with account currency code for conversion.
+    // Exclude TRANSFER and ADJUSTMENT from income/expense calculations.
+    // Include account_id to apply the per-account adjustment filter below.
     const { data, error } = await supabase
       .from('transactions')
-      .select('signed_amount, kind, accounts!inner(account_types!inner(balance_nature))')
+      .select('signed_amount, kind, account_id, occurred_at, accounts!inner(currency_code, account_types!inner(balance_nature))')
       .eq('user_id', userId)
       .eq('status', 'POSTED')
       .gte('occurred_at', `${startDate} 00:00:00`)
@@ -176,10 +228,31 @@ export const transactionRepository = {
     let totalExpense = 0;
 
     (data || []).forEach((t) => {
-      const amount = Number(t.signed_amount);
+      // Skip transactions that are "historical" — i.e., occurred at or before the
+      // most recent ADJUSTMENT for their account. The ADJUSTMENT amount already
+      // captures everything up to that point, so adding earlier transactions would
+      // double-count (or add noise to) the balance.
+      const lastAdj = t.account_id ? lastAdjMap.get(t.account_id) : undefined;
+      if (lastAdj && t.occurred_at <= lastAdj) return;
+
+      const rawAmount = Number(t.signed_amount);
       const account = t.accounts as any;
       const balanceNature = account?.account_types?.balance_nature;
-      
+      const currencyCode: string = account?.currency_code ?? '';
+
+      // Convert to preferred currency using convertToBase.
+      // Falls back to the raw amount when rates or preferred code are unavailable.
+      let amount = rawAmount;
+      if (rateByCode && preferredCode) {
+        if (!rateByCode.has(currencyCode)) {
+          console.warn(
+            `[getSummary] No exchange rate found for currency "${currencyCode}" — using raw amount as fallback`
+          );
+        } else {
+          amount = convertToBase(rawAmount, currencyCode, preferredCode, rateByCode);
+        }
+      }
+
       // ASSET: positive = income, negative = expense
       // LIABILITY: positive = charge (expense), negative = payment (reduces debt, not income)
       if (balanceNature === 'ASSET') {
@@ -198,9 +271,9 @@ export const transactionRepository = {
     });
 
     return {
-      totalIncome,
-      totalExpense,
-      balance: totalIncome - totalExpense,
+      totalIncome: Math.round(totalIncome * 100) / 100,
+      totalExpense: Math.round(totalExpense * 100) / 100,
+      balance: Math.round((totalIncome - totalExpense) * 100) / 100,
     };
   },
 };

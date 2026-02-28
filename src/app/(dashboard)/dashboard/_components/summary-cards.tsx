@@ -39,9 +39,13 @@ export async function SummaryCards() {
 
   const summary = summaryResult.success
     ? summaryResult.data
-    : { totalIncome: 0, totalExpense: 0, balance: 0 };
+    : { totalIncome: 0, totalExpense: 0, balance: 0, preferredCode: 'COP', preferredSymbol: '$' };
 
   const totalBalance = totalResult.success ? totalResult.data : null;
+
+  // Symbol and label to use for transaction-based cards (income, expense, net balance)
+  const txSymbol = summary.preferredSymbol;
+  const txCode = summary.preferredCode;
 
   const cards = [
     ...(totalBalance
@@ -69,9 +73,9 @@ export async function SummaryCards() {
       : []),
     {
       label: 'Balance Neto',
-      sublabel: monthLabel,
+      sublabel: `${monthLabel} · ${txCode}`,
       value: summary.balance,
-      symbol: '$' as const,
+      symbol: txSymbol,
       icon: Wallet,
       iconBg: 'bg-luka-accent/10',
       iconColor: 'text-luka-accent',
@@ -87,9 +91,9 @@ export async function SummaryCards() {
     },
     {
       label: 'Ingresos del Mes',
-      sublabel: 'Transacciones registradas',
+      sublabel: `Transacciones registradas · ${txCode}`,
       value: summary.totalIncome,
-      symbol: '$' as const,
+      symbol: txSymbol,
       icon: TrendingUp,
       iconBg: 'bg-luka-income/10',
       iconColor: 'text-luka-income',
@@ -99,9 +103,9 @@ export async function SummaryCards() {
     },
     {
       label: 'Gastos del Mes',
-      sublabel: 'Transacciones registradas',
+      sublabel: `Transacciones registradas · ${txCode}`,
       value: summary.totalExpense,
-      symbol: '$' as const,
+      symbol: txSymbol,
       icon: TrendingDown,
       iconBg: 'bg-luka-expense/10',
       iconColor: 'text-luka-expense',

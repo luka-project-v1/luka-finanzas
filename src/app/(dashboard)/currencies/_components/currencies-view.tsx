@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   RefreshCw,
@@ -189,7 +189,7 @@ function EmptyState() {
       <div className="space-y-1.5">
         <p className="text-base font-semibold text-white/70">Sin divisas configuradas</p>
         <p className="text-sm text-neu-muted max-w-xs">
-          Las divisas se crearán automáticamente cuando agregues tu primera cuenta.
+          No se pudieron crear las divisas predeterminadas. Intenta recargar la página.
         </p>
       </div>
     </div>
@@ -204,7 +204,7 @@ interface CurrenciesViewProps {
 
 export function CurrenciesView({ currencies }: CurrenciesViewProps) {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  const [isPending, setIsPending] = useState(false);
   const [toast, setToast] = useState<ToastState>(null);
 
   // The preferred currency is the one with exchange_rate_to_preferred = 1
@@ -230,18 +230,26 @@ export function CurrenciesView({ currencies }: CurrenciesViewProps) {
     .sort()
     .at(-1);
 
-  function handleRefresh() {
-    startTransition(() => {
-      refreshExchangeRates().then((result) => {
-        if (result.success) {
-          setToast({ type: 'success', message: 'Tasas de cambio actualizadas correctamente.' });
-          router.refresh();
-        } else {
-          const errMsg = 'error' in result ? result.error : 'Error al actualizar las tasas de cambio.';
-          setToast({ type: 'error', message: errMsg });
-        }
-      });
-    });
+  async function handleRefresh() {
+    setIsPending(true);
+    try {
+      const result = await refreshExchangeRates();
+      if (result.success) {
+        const { updated, skipped } = result.data;
+        const msg = skipped > 0
+          ? `${updated} divisa(s) actualizada(s), ${skipped} omitida(s).`
+          : `${updated} divisa(s) actualizada(s) correctamente.`;
+        setToast({ type: 'success', message: msg });
+        router.refresh();
+      } else {
+        setToast({
+          type: 'error',
+          message: 'error' in result ? result.error : 'Error al actualizar las tasas de cambio.',
+        });
+      }
+    } finally {
+      setIsPending(false);
+    }
   }
 
   return (

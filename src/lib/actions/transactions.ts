@@ -164,18 +164,88 @@ export async function deleteTransaction(id: string): Promise<ActionResult<void>>
 export async function getTransactionsSummary(
   startDate: string,
   endDate: string
-): Promise<ActionResult<{ totalIncome: number; totalExpense: number; balance: number }>> {
+): Promise<
+  ActionResult<{
+    totalIncome: number;
+    totalExpense: number;
+    balance: number;
+    preferredCode: string;
+    preferredSymbol: string;
+  }>
+> {
   try {
     const user = await getCurrentUser();
     if (!user) {
       return { success: false, error: 'No autorizado' };
     }
 
-    const summary = await transactionRepository.getSummary(user.id, startDate, endDate);
-    return { success: true, data: summary };
+    // Fetch user currencies to build the exchange-rate map.
+    // Cast to `any` because the `currencies` table is not part of the generated
+    // Supabase database types (it lives in a separate schema migration).
+    const supabase = await createClient();
+    type CurrencyRow = {
+      code: string;
+      symbol: string;
+      exchange_rate_to_preferred: number | null;
+    };
+    const { data: currenciesRaw, error: currError } = await (supabase as any)
+      .from('currencies')
+      .select('code, symbol, exchange_rate_to_preferred')
+      .eq('user_id', user.id);
+
+    if (currError) throw currError;
+
+    const currencies = (currenciesRaw ?? []) as CurrencyRow[];
+
+    // Determine the preferred currency (rate === 1 wins, then null fallback, then first)
+    const preferredCurrency =
+      currencies.find((c) => c.exchange_rate_to_preferred === 1) ??
+      currencies.find((c) => c.exchange_rate_to_preferred === null) ??
+      currencies[0];
+
+    const preferredCode = preferredCurrency?.code ?? 'COP';
+    const preferredSymbol = preferredCurrency?.symbol ?? '$';
+
+    // Build a map: currencyCode → rate_to_preferred
+    const rateByCode = new Map<string, number>();
+    for (const c of currencies) {
+      const rate = c.exchange_rate_to_preferred;
+      if (rate === null) {
+        console.warn(
+          `[getTransactionsSummary] Currency "${c.code}" has no exchange_rate_to_preferred — using 1.0`
+        );
+      }
+      rateByCode.set(c.code, rate === null ? 1.0 : rate);
+    }
+
+    const summary = await transactionRepository.getSummary(user.id, startDate, endDate, rateByCode, preferredCode);
+
+    return {
+      success: true,
+      data: { ...summary, preferredCode, preferredSymbol },
+    };
   } catch (error) {
     console.error('Error fetching summary:', error);
     return { success: false, error: 'Error al obtener el resumen' };
+  }
+}
+
+// Returns { accountId: { date: ISO-datetime, id: UUID } } for the most recent POSTED
+// ADJUSTMENT per account. Used by the transaction list to visually mark historical rows.
+export async function getLastAdjustmentDates(
+  accountIds: string[]
+): Promise<ActionResult<Record<string, { date: string; id: string }>>> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return { success: false, error: 'No autorizado' };
+    }
+
+    const map = await transactionRepository.getLastAdjustmentPerAccount(user.id, accountIds);
+    return { success: true, data: Object.fromEntries(map) };
+  } catch (error) {
+    console.error('Error fetching last adjustment dates:', error);
+    return { success: false, error: 'Error al obtener fechas de ajuste' };
   }
 }
 
