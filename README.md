@@ -28,17 +28,37 @@ npm install
 
 ### 2. Configurar variables de entorno
 
-Crea un archivo `.env.local` en la raíz del proyecto con el siguiente contenido:
+Copia `.env.example` a `.env.local` y completa los valores:
+
+```bash
+cp .env.example .env.local
+```
+
+**Dónde obtener cada variable:**
+
+| Variable | Dónde obtenerla |
+|----------|-----------------|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase Dashboard → Settings → API → Project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase Dashboard → Settings → API → anon public |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase Dashboard → Settings → API → service_role (secreto) |
+| `CRON_SECRET` | Generar con `openssl rand -hex 24` (para producción/Vercel) |
+
+**Mínimo para desarrollo local:**
 
 ```env
-# Supabase
-NEXT_PUBLIC_SUPABASE_URL=https://vvxdblsnookddrswbumi.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ2eGRibHNub29rZGRyc3didW1pIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyOTgzNDcsImV4cCI6MjA3Mzg3NDM0N30.K9i1STyViPU8rJk_cbClFnSRF5WHg4Bim4twb-0-O9E
-
-# App
+NEXT_PUBLIC_SUPABASE_URL=https://tu-proyecto.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=tu-anon-key
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 NEXT_PUBLIC_APP_NAME=Luka
 ```
+
+**Para cron (actualización automática de tasas de cambio) y seed:**
+
+```env
+SUPABASE_SERVICE_ROLE_KEY=tu-service-role-key
+```
+
+**Para producción en Vercel:** añade `CRON_SECRET` en Vercel Dashboard → Settings → Environment Variables (Vercel lo envía automáticamente al invocar crons).
 
 ### 3. Base de datos
 

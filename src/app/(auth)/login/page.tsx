@@ -1,116 +1,150 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import { signIn } from '@/lib/actions/auth';
 
 export default function LoginPage() {
-  const router = useRouter();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setError('');
-    setLoading(true);
+    setError(null);
 
-    try {
-      const result = await signIn({ email, password });
-      
-      if (result && 'error' in result) {
+    const formData = new FormData(e.currentTarget);
+    const data = {
+      email: formData.get('email') as string,
+      password: formData.get('password') as string,
+    };
+
+    startTransition(async () => {
+      const result = await signIn(data);
+      if (result && !result.success) {
         setError(result.error);
       }
-    } catch (err) {
-      // Handle redirect
-      if (err instanceof Error && err.message === 'NEXT_REDIRECT') {
-        throw err;
-      }
-      setError('Ocurrió un error. Por favor intenta de nuevo.');
-    } finally {
-      setLoading(false);
-    }
-  };
+    });
+  }
 
   return (
-    <div className="min-h-screen bg-[#F5F3EE] flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        {/* Logo */}
-        <div className="text-center mb-12">
-          <div className="inline-flex items-center justify-center w-20 h-20 bg-[#D97757] rounded-2xl mb-6">
-            <span className="text-white font-bold text-3xl">L</span>
-          </div>
-          <h1 className="text-4xl font-bold text-[#1A1A1A] mb-3">Luka</h1>
-          <p className="text-[#6B6B6B] text-lg">Inicia sesión en tu cuenta</p>
-        </div>
+    <div className="w-full max-w-sm">
+      {/* Marca */}
+      <div className="text-center mb-8">
+        <span className="text-4xl font-bold tracking-tight text-neu-accent">
+          Luka
+        </span>
+        <p className="mt-1 text-sm text-neu-muted">Control de Finanzas Personales</p>
+      </div>
 
-        <div className="bg-white rounded-3xl p-10 card-shadow-lg">
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {error && (
-              <div className="bg-red-50 text-red-700 text-sm p-4 rounded-xl border border-red-200">
-                {error}
-              </div>
-            )}
+      {/* Tarjeta */}
+      <div className="neu-card p-8">
+        <h1 className="text-lg font-semibold text-foreground mb-1">
+          Bienvenido de nuevo
+        </h1>
+        <p className="text-sm text-neu-muted mb-6">
+          Inicia sesión en tu cuenta para continuar.
+        </p>
 
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-[#1A1A1A] mb-3">
-                Email
-              </label>
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-5 py-4 border border-[#E5E3DE] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
-                placeholder="you@example.com"
-                required
-                disabled={loading}
-              />
-            </div>
-
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-[#1A1A1A] mb-3">
-                Contraseña
-              </label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-5 py-4 border border-[#E5E3DE] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#D97757] focus:border-transparent bg-white text-[#1A1A1A] transition-all"
-                placeholder="••••••••"
-                required
-                disabled={loading}
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-[#D97757] text-white py-4 px-6 rounded-xl font-semibold hover:bg-[#C66647] transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm text-lg mt-8"
+        <form onSubmit={handleSubmit} noValidate className="space-y-4">
+          {/* Correo */}
+          <div className="space-y-1.5">
+            <label
+              htmlFor="email"
+              className="block text-xs font-medium text-neu-muted uppercase tracking-wider"
             >
-              {loading ? 'Iniciando sesión...' : 'Iniciar Sesión'}
-            </button>
-          </form>
-
-          <div className="mt-8 text-center">
-            <p className="text-[#6B6B6B]">
-              ¿No tienes una cuenta?{' '}
-              <Link href="/signup" className="text-[#D97757] hover:text-[#C66647] font-semibold transition-colors">
-                Regístrate
-              </Link>
-            </p>
+              Correo electrónico
+            </label>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="email"
+              required
+              placeholder="tu@correo.com"
+              className="neu-input"
+              disabled={isPending}
+            />
           </div>
 
-          {/* Demo credentials hint */}
-          <div className="mt-6 p-4 bg-[#F5F3EE] rounded-xl">
-            <p className="text-xs text-[#6B6B6B] text-center">
-              <strong>Demo:</strong> luca@test.com / admin123
-            </p>
+          {/* Contraseña */}
+          <div className="space-y-1.5">
+            <label
+              htmlFor="password"
+              className="block text-xs font-medium text-neu-muted uppercase tracking-wider"
+            >
+              Contraseña
+            </label>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              required
+              placeholder="••••••••"
+              className="neu-input"
+              disabled={isPending}
+            />
           </div>
-        </div>
+
+          {/* Error */}
+          {error && (
+            <div
+              role="alert"
+              className="rounded-neu-sm border border-[#2a1414] bg-[#1a0e0e] px-4 py-3 text-sm text-luka-expense"
+            >
+              {error}
+            </div>
+          )}
+
+          {/* Enviar */}
+          <button
+            type="submit"
+            disabled={isPending}
+            className="neu-btn neu-btn-primary w-full mt-2"
+          >
+            {isPending ? (
+              <span className="flex items-center gap-2">
+                <svg
+                  className="h-4 w-4 animate-spin"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                  />
+                </svg>
+                Iniciando sesión…
+              </span>
+            ) : (
+              'Iniciar sesión'
+            )}
+          </button>
+        </form>
+
+        {/* Divisor */}
+        <hr className="neu-divider" />
+
+        <p className="text-center text-sm text-neu-muted">
+          ¿No tienes una cuenta?{' '}
+          <Link
+            href="/signup"
+            className="text-neu-accent hover:underline transition-colors"
+          >
+            Crear una
+          </Link>
+        </p>
       </div>
     </div>
   );

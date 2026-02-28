@@ -1,113 +1,286 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
- 
+
+/* ─────────────────────────────────────────────
+   CSS Custom Properties — Soft UI / Dark Neumorphism
+   ───────────────────────────────────────────── */
 @layer base {
   :root {
-    /* Luka Custom Colors - Anthropic inspired */
-    --background: 33 28 18; /* #F5F3EE - Cream warm */
-    --foreground: 0 0 10; /* #1A1A1A - Deep black */
- 
-    --card: 0 0 100; /* #FFFFFF - White for cards */
-    --card-foreground: 0 0 10;
- 
-    --popover: 0 0 100;
-    --popover-foreground: 0 0 10;
- 
-    --primary: 16 57 49; /* #D97757 - Terracotta */
-    --primary-foreground: 0 0 100;
- 
-    --secondary: 0 0 42; /* #6B6B6B - Gray */
-    --secondary-foreground: 0 0 100;
- 
-    --muted: 33 28 18; /* #F5F3EE - Same as background */
-    --muted-foreground: 0 0 42;
- 
-    --accent: 16 57 49; /* #D97757 - Terracotta */
-    --accent-foreground: 0 0 100;
- 
-    --destructive: 0 72 51; /* #DC2626 - Red */
-    --destructive-foreground: 0 0 100;
- 
-    --border: 28 17 12; /* #E5E3DE - Soft neutral */
-    --input: 0 0 100; /* White for inputs */
-    --ring: 16 57 49;
- 
-    --radius: 0.75rem; /* 12px - rounded corners */
-    
-    /* Semantic colors */
-    --success: 142 71 54; /* #4CAF50 - Green for income */
-    --warning: 38 92 50; /* #F59E0B - Amber */
-    --error: 0 72 51; /* #DC2626 - Red for expenses */
-    --info: 217 92 60; /* #3B82F6 - Blue */
+    /* shadcn/ui tokens mapped to dark neumorphism palette */
+    --background: 0 0% 4%;          /* #0a0a0a */
+    --foreground: 0 0% 88%;         /* #e0e0e0 */
+
+    --card: 0 0% 7%;                /* #121212 */
+    --card-foreground: 0 0% 88%;
+
+    --popover: 0 0% 7%;
+    --popover-foreground: 0 0% 88%;
+
+    --primary: 20 57% 58%;          /* terracotta #D97757 */
+    --primary-foreground: 0 0% 4%;
+
+    --secondary: 0 0% 10%;          /* #1a1a1a */
+    --secondary-foreground: 0 0% 75%;
+
+    --muted: 0 0% 10%;
+    --muted-foreground: 0 0% 53%;   /* #888888 */
+
+    --accent: 20 57% 58%;
+    --accent-foreground: 0 0% 4%;
+
+    --destructive: 0 72% 71%;       /* #f87171 */
+    --destructive-foreground: 0 0% 4%;
+
+    --border: 0 0% 13%;             /* #212121 */
+    --input: 0 0% 7%;
+    --ring: 20 57% 58%;
+
+    /* Global border-radius — 1.5rem drives shadcn components */
+    --radius: 1.5rem;
+
+    /* Neumorphism shadow primitives (reusable in component layers) */
+    --neu-shadow-dark: #000000;
+    --neu-shadow-light: #1d1d1d;
+    --neu-shadow-out: 4px 4px 10px var(--neu-shadow-dark),
+                      -3px -3px 7px var(--neu-shadow-light);
+    --neu-shadow-in:  inset 3px 3px 7px var(--neu-shadow-dark),
+                      inset -2px -2px 5px var(--neu-shadow-light);
   }
- 
-  .dark {
-    --background: 0 0 10; /* #1A1A1A */
-    --foreground: 33 28 24; /* #F5F3EE */
- 
-    --card: 0 0 16; /* #2A2A2A */
-    --card-foreground: 33 28 24;
- 
-    --popover: 0 0 16;
-    --popover-foreground: 33 28 24;
- 
-    --primary: 16 57 49;
-    --primary-foreground: 0 0 100;
- 
-    --secondary: 0 0 42;
-    --secondary-foreground: 0 0 100;
- 
-    --muted: 0 0 16;
-    --muted-foreground: 0 0 60;
- 
-    --accent: 16 57 49;
-    --accent-foreground: 0 0 100;
- 
-    --destructive: 0 72 51;
-    --destructive-foreground: 0 0 100;
- 
-    --border: 0 0 16;
-    --input: 0 0 16;
-    --ring: 16 57 49;
-  }
-}
- 
-@layer base {
+
+  /* ── Global resets ── */
   * {
-    @apply border-border;
+    border-color: hsl(var(--border));
+    box-sizing: border-box;
   }
+
   body {
-    @apply bg-[#F5F3EE] text-foreground;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    font-feature-settings: "rlig" 1, "calt" 1;
+    background-color: #0a0a0a;
+    color: hsl(var(--foreground));
+    font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
-  
-  h1, h2, h3, h4, h5, h6 {
-    @apply font-semibold tracking-tight;
+
+  /* Smooth scrollbar on dark bg */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
   }
-  
-  h1 {
-    @apply text-4xl;
+  ::-webkit-scrollbar-track {
+    background: #0a0a0a;
   }
-  
-  h2 {
-    @apply text-2xl;
+  ::-webkit-scrollbar-thumb {
+    background: #222222;
+    border-radius: 3px;
   }
-  
-  h3 {
-    @apply text-xl;
+  ::-webkit-scrollbar-thumb:hover {
+    background: #2e2e2e;
+  }
+
+  /* Focus ring — terracotta accent */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
   }
 }
 
+/* ─────────────────────────────────────────────
+   Component Layer — Neumorphic UI primitives
+   ───────────────────────────────────────────── */
 @layer components {
-  .card-shadow {
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+
+  /* ── Surface card ── */
+  .neu-card {
+    background-color: #121212;
+    border-radius: 1.5rem;
+    border: 1px solid #1e1e1e;
+    box-shadow: 4px 4px 10px #000000, -3px -3px 7px #1a1a1a;
+    transition: box-shadow 0.2s ease;
   }
-  
-  .card-shadow-lg {
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -1px rgba(0, 0, 0, 0.04);
+  .neu-card:hover {
+    box-shadow: 6px 6px 14px #000000, -4px -4px 9px #1c1c1c;
   }
+
+  /* ── Input / inset element ── */
+  .neu-input {
+    background-color: #0e0e0e;
+    border-radius: 0.75rem;
+    border: 1px solid #1e1e1e;
+    color: hsl(var(--foreground));
+    padding: 0.625rem 1rem;
+    box-shadow: var(--neu-shadow-in);
+    transition: box-shadow 0.2s ease, border-color 0.2s ease;
+    width: 100%;
+  }
+  .neu-input:focus {
+    outline: none;
+    border-color: hsl(var(--ring) / 0.6);
+    box-shadow: inset 4px 4px 10px #000000,
+                inset -3px -3px 8px #1d1d1d,
+                0 0 0 2px hsl(var(--ring) / 0.2);
+  }
+  .neu-input::placeholder {
+    color: #555555;
+  }
+
+  /* ── Raised button (tactile relief effect) ── */
+  .neu-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    background-color: #161616;
+    border-radius: 1.5rem;
+    border: 1px solid #1e1e1e;
+    color: hsl(var(--foreground));
+    font-weight: 500;
+    font-size: 0.875rem;
+    padding: 0.625rem 1.5rem;
+    cursor: pointer;
+    user-select: none;
+    box-shadow: 3px 3px 8px #000000, -2px -2px 6px #1a1a1a;
+    transition: box-shadow 0.15s ease, transform 0.1s ease, background-color 0.15s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .neu-btn:hover:not(:disabled) {
+    box-shadow: 5px 5px 12px #000000, -3px -3px 8px #1c1c1c;
+    background-color: #181818;
+  }
+  .neu-btn:active:not(:disabled) {
+    box-shadow: inset 3px 3px 7px #000000, inset -2px -2px 5px #1d1d1d;
+    transform: scale(0.98);
+  }
+  .neu-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+
+  /* ── CTA / Primary button (terracotta accent + glow) ── */
+  .neu-btn-primary {
+    background-color: #D97757;
+    border-color: #C66647;
+    color: #0a0a0a;
+    font-weight: 600;
+    box-shadow: 3px 3px 8px #000000,
+                -2px -2px 6px #1a1a1a,
+                0 0 12px rgba(217,119,87,0.15);
+  }
+  .neu-btn-primary:hover:not(:disabled) {
+    background-color: #C66647;
+    box-shadow: 4px 4px 10px #000000,
+                -3px -3px 7px #1c1c1c,
+                0 0 18px rgba(217,119,87,0.25);
+  }
+  .neu-btn-primary:active:not(:disabled) {
+    box-shadow: inset 3px 3px 7px rgba(0,0,0,0.5),
+                inset -2px -2px 5px rgba(255,255,255,0.04);
+    transform: scale(0.98);
+  }
+
+  /* ── Destructive button ── */
+  .neu-btn-destructive {
+    background-color: #1a0e0e;
+    border-color: #2a1414;
+    color: #f87171;
+    box-shadow: 3px 3px 8px #000000, -2px -2px 6px #1a1a1a;
+  }
+  .neu-btn-destructive:hover:not(:disabled) {
+    background-color: #1e1010;
+    box-shadow: 4px 4px 10px #000000,
+                -3px -3px 7px #1c1c1c,
+                0 0 14px rgba(248,113,113,0.12);
+  }
+  .neu-btn-destructive:active:not(:disabled) {
+    box-shadow: var(--neu-shadow-in);
+    transform: scale(0.98);
+  }
+
+  /* ── Icon button (compact round) ── */
+  .neu-btn-icon {
+    padding: 0.625rem;
+    border-radius: 50%;
+    aspect-ratio: 1;
+  }
+
+  /* ── Badge / Pill ── */
+  .neu-badge {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 9999px;
+    padding: 0.125rem 0.625rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    background-color: #1a1a1a;
+    border: 1px solid #2a2a2a;
+    box-shadow: 2px 2px 6px #000000, -2px -2px 4px #1d1d1d;
+  }
+
+  /* ── Sidebar / nav item active state ── */
+  .neu-nav-active {
+    background-color: #1a1a1a;
+    border-radius: 1rem;
+    box-shadow: var(--neu-shadow-in);
+    color: #D97757;
+  }
+
+  /* ── Section divider ── */
+  .neu-divider {
+    border: none;
+    height: 1px;
+    background: linear-gradient(to right, transparent, #1e1e1e 30%, #1e1e1e 70%, transparent);
+    margin: 1.5rem 0;
+  }
+}
+
+/* ─────────────────────────────────────────────
+   Utility Layer — quick shadow helpers
+   ───────────────────────────────────────────── */
+@layer utilities {
+  .shadow-soft-out {
+    box-shadow: 4px 4px 10px #000000, -3px -3px 7px #1a1a1a;
+  }
+  .shadow-soft-out-md {
+    box-shadow: 6px 6px 14px #000000, -4px -4px 9px #1c1c1c;
+  }
+  .shadow-soft-out-lg {
+    box-shadow: 10px 10px 22px #000000, -6px -6px 14px #1e1e1e;
+  }
+  .shadow-soft-in {
+    box-shadow: inset 3px 3px 7px #000000, inset -2px -2px 5px #1d1d1d;
+  }
+  .shadow-soft-in-md {
+    box-shadow: inset 4px 4px 10px #000000, inset -3px -3px 7px #1d1d1d;
+  }
+  .shadow-soft-hover {
+    box-shadow: 6px 6px 14px #000000, -4px -4px 9px #1c1c1c;
+  }
+  .shadow-soft-accent {
+    box-shadow: 4px 4px 10px #000000,
+                -3px -3px 7px #1a1a1a,
+                0 0 14px rgba(217,119,87,0.18);
+  }
+  .shadow-soft-income {
+    box-shadow: 0 0 16px rgba(74,222,128,0.2);
+  }
+  .shadow-soft-expense {
+    box-shadow: 0 0 16px rgba(248,113,113,0.2);
+  }
+
+  /* Text color shorthands */
+  .text-neu-muted   { color: #666666; }
+  .text-neu-subtle  { color: #444444; }
+  .text-neu-accent  { color: #D97757; }
+  .text-neu-income  { color: #4ade80; }
+  .text-neu-expense { color: #f87171; }
+
+  /* Background shorthands */
+  .bg-neu           { background-color: #0a0a0a; }
+  .bg-neu-surface   { background-color: #121212; }
+  .bg-neu-raised    { background-color: #161616; }
+
+  /* Border shorthands */
+  .border-neu       { border-color: #1e1e1e; }
+  .border-neu-soft  { border-color: #2a2a2a; }
 }

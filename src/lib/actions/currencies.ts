@@ -1,6 +1,6 @@
 'use server';
 
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createAdminClient } from '@/lib/supabase/server';
 
 // Currency type (not in Prisma schema, but exists in Supabase)
 type Currency = {
@@ -24,7 +24,7 @@ export async function getCurrencies(): Promise<ActionResult<Currency[]>> {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     
     if (authError || !user) {
-      return { success: false, error: 'Unauthorized' };
+      return { success: false, error: 'No autorizado' };
     }
 
     const { data, error } = await supabase
@@ -38,7 +38,7 @@ export async function getCurrencies(): Promise<ActionResult<Currency[]>> {
     return { success: true, data: data || [] };
   } catch (error) {
     console.error('Error fetching currencies:', error);
-    return { success: false, error: 'Failed to fetch currencies' };
+    return { success: false, error: 'Error al obtener las divisas' };
   }
 }
 
@@ -48,7 +48,7 @@ export async function getOrCreateDefaultCurrencies(): Promise<ActionResult<Curre
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     
     if (authError || !user) {
-      return { success: false, error: 'Unauthorized' };
+      return { success: false, error: 'No autorizado' };
     }
 
     // Check if user has currencies
@@ -89,7 +89,7 @@ export async function getOrCreateDefaultCurrencies(): Promise<ActionResult<Curre
     return await getCurrencies();
   } catch (error) {
     console.error('Error creating default currencies:', error);
-    return { success: false, error: 'Failed to create default currencies' };
+    return { success: false, error: 'Error al crear las divisas predeterminadas' };
   }
 }
 
@@ -99,7 +99,7 @@ export async function refreshExchangeRates(): Promise<ActionResult<void>> {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     
     if (authError || !user) {
-      return { success: false, error: 'Unauthorized' };
+      return { success: false, error: 'No autorizado' };
     }
 
     // Get all currencies for the user
@@ -111,7 +111,7 @@ export async function refreshExchangeRates(): Promise<ActionResult<void>> {
     if (fetchError) throw fetchError;
 
     if (!currencies || currencies.length === 0) {
-      return { success: false, error: 'No currencies found' };
+      return { success: false, error: 'No se encontraron divisas' };
     }
 
     // Find preferred currency (COP by default)
@@ -136,6 +136,57 @@ export async function refreshExchangeRates(): Promise<ActionResult<void>> {
     return { success: true, data: undefined };
   } catch (error) {
     console.error('Error refreshing exchange rates:', error);
-    return { success: false, error: 'Failed to refresh exchange rates' };
+    return { success: false, error: 'Error al actualizar las tasas de cambio' };
+  }
+}
+
+/**
+ * Refreshes exchange rates for ALL users. Uses service role, no auth required.
+ * Intended for cron jobs. In production, fetch rates from an external API.
+ */
+export async function refreshAllUsersExchangeRates(): Promise<ActionResult<{ updated: number }>> {
+  try {
+    const supabase = createAdminClient();
+    // currencies table exists but may not be in generated Database types
+    const { data: currencies, error: fetchError } = await (supabase as any)
+      .from('currencies')
+      .select('id, user_id, code')
+      .order('user_id');
+
+    if (fetchError) throw fetchError;
+
+    const list = (currencies ?? []) as { id: string; user_id: string; code: string }[];
+    if (list.length === 0) {
+      return { success: true, data: { updated: 0 } };
+    }
+
+    // Group by user to find preferred (COP) and USD per user
+    const byUser = new Map<string, { usd?: { id: string }; cop?: { id: string } }>();
+    for (const c of list) {
+      if (!byUser.has(c.user_id)) byUser.set(c.user_id, {});
+      const u = byUser.get(c.user_id)!;
+      if (c.code === 'USD') u.usd = { id: c.id };
+      if (c.code === 'COP') u.cop = { id: c.id };
+    }
+
+    // Default rate: 1 USD = 4000 COP (in production, fetch from API)
+    const defaultUsdToCopRate = 4000;
+    let updated = 0;
+
+    for (const [, { usd, cop }] of Array.from(byUser.entries())) {
+      if (usd && cop) {
+        const { error: updateError } = await (supabase as any)
+          .from('currencies')
+          .update({ exchange_rate_to_preferred: defaultUsdToCopRate })
+          .eq('id', usd.id);
+
+        if (!updateError) updated++;
+      }
+    }
+
+    return { success: true, data: { updated } };
+  } catch (error) {
+    console.error('Error refreshing all exchange rates:', error);
+    return { success: false, error: 'Error al actualizar las tasas de cambio' };
   }
 }

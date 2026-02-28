@@ -1,23 +1,24 @@
 import { z } from 'zod';
-import { Currency } from '@prisma/client';
+
+const CurrencyEnum = z.enum(['USD', 'COP'], {
+  required_error: 'La moneda es obligatoria',
+  invalid_type_error: 'Código de moneda inválido',
+});
 
 export const createBankAccountSchema = z.object({
-  name: z.string().min(1, 'Name is required').max(100),
-  currency_code: z.nativeEnum(Currency, {
-    required_error: 'Currency is required',
-    invalid_type_error: 'Invalid currency code',
-  }),
+  name: z.string().min(1, 'El nombre es obligatorio').max(100),
+  currency_code: CurrencyEnum,
   institution_name: z.string().max(100).optional().nullable().transform(val => val === '' ? null : val),
   opened_at: z.string()
     .optional()
     .nullable()
     .transform(val => val === '' || !val ? null : val)
     .refine((val) => val === null || /^\d{4}-\d{2}-\d{2}$/.test(val), {
-      message: 'Invalid date format',
+      message: 'Formato de fecha inválido',
     }),
   // Bank account specific details
   kind: z.enum(['SAVINGS', 'CHECKING'], {
-    required_error: 'Account kind is required',
+    required_error: 'El tipo de cuenta es obligatorio',
   }),
   bank_name: z.string().max(100).optional().nullable().transform(val => val === '' ? null : val),
   masked_number: z.string().max(20).optional().nullable().transform(val => val === '' ? null : val),
@@ -27,9 +28,9 @@ export const createBankAccountSchema = z.object({
 });
 
 export const updateBankAccountSchema = z.object({
-  name: z.string().min(1, 'Name is required').max(100).optional(),
-  currency_code: z.nativeEnum(Currency, {
-    invalid_type_error: 'Invalid currency code',
+  name: z.string().min(1, 'El nombre es obligatorio').max(100).optional(),
+  currency_code: z.enum(['USD', 'COP'], {
+    invalid_type_error: 'Código de moneda inválido',
   }).optional(),
   institution_name: z.string().max(100).optional().nullable().transform(val => val === '' ? null : val),
   status: z.enum(['ACTIVE', 'CLOSED']).optional(),
@@ -38,14 +39,14 @@ export const updateBankAccountSchema = z.object({
     .nullable()
     .transform(val => val === '' || !val ? null : val)
     .refine((val) => val === null || /^\d{4}-\d{2}-\d{2}$/.test(val), {
-      message: 'Invalid date format',
+      message: 'Formato de fecha inválido',
     }),
   closed_at: z.string()
     .optional()
     .nullable()
     .transform(val => val === '' || !val ? null : val)
     .refine((val) => val === null || /^\d{4}-\d{2}-\d{2}$/.test(val), {
-      message: 'Invalid date format',
+      message: 'Formato de fecha inválido',
     }),
   // Bank account specific details
   kind: z.enum(['SAVINGS', 'CHECKING']).optional(),

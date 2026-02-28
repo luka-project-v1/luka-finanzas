@@ -1006,22 +1006,21 @@ export async function safeAction<T>(
 
 ## Environment Variables
 
-```bash
-# .env.example
+Copy `.env.example` to `.env.local` and fill in the values. See the table below for where to get each token.
 
-# Supabase
-NEXT_PUBLIC_SUPABASE_URL=your-project-url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+| Variable | Source | Required |
+|----------|--------|----------|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase Dashboard → Settings → API → Project URL | Yes |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase Dashboard → Settings → API → anon public | Yes |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase Dashboard → Settings → API → service_role (keep secret!) | Cron, seed |
+| `CRON_SECRET` | Generate with `openssl rand -hex 24` | Production (Vercel cron) |
+| `NEXT_PUBLIC_APP_URL` | Your app URL (e.g. `http://localhost:3000`) | Yes |
+| `NEXT_PUBLIC_APP_NAME` | App name | Yes |
+| `DATABASE_URL` / `DIRECT_URL` | Supabase → Settings → Database → Connection string | Prisma migrations |
 
-# App
-NEXT_PUBLIC_APP_URL=http://localhost:3000
-NEXT_PUBLIC_APP_NAME=Luka
-
-# Optional: External Services
-NEXT_PUBLIC_SENTRY_DSN=
-NEXT_PUBLIC_GA_ID=
-```
+**Token locations:**
+- **Supabase API keys**: Supabase Dashboard → Your Project → Settings → API
+- **CRON_SECRET**: Set in Vercel Dashboard → Project → Settings → Environment Variables. Vercel sends it in the `Authorization: Bearer` header when invoking cron jobs.
 
 ---
 

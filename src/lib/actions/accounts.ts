@@ -21,7 +21,7 @@ export async function getBankAccounts(): Promise<ActionResult<AccountWithDetails
   try {
     const user = await getCurrentUser();
     if (!user) {
-      return { success: false, error: 'Unauthorized' };
+      return { success: false, error: 'No autorizado' };
     }
 
     const accounts = await accountRepository.getAll(user.id);
@@ -35,7 +35,7 @@ export async function getBankAccounts(): Promise<ActionResult<AccountWithDetails
     return { success: true, data: bankAccounts };
   } catch (error) {
     console.error('Error fetching accounts:', error);
-    return { success: false, error: 'Failed to fetch accounts' };
+    return { success: false, error: 'Error al obtener las cuentas' };
   }
 }
 
@@ -43,24 +43,24 @@ export async function getBankAccount(id: string): Promise<ActionResult<AccountWi
   try {
     const user = await getCurrentUser();
     if (!user) {
-      return { success: false, error: 'Unauthorized' };
+      return { success: false, error: 'No autorizado' };
     }
 
     const account = await accountRepository.getById(id, user.id);
     if (!account) {
-      return { success: false, error: 'Account not found' };
+      return { success: false, error: 'Cuenta no encontrada' };
     }
 
     // Verify it's a bank account
     const bankAccountType = await accountRepository.getAccountTypeByCode('BANK_ACCOUNT');
     if (!bankAccountType || account.account_type_id !== bankAccountType.id) {
-      return { success: false, error: 'Account is not a bank account' };
+      return { success: false, error: 'La cuenta no es una cuenta bancaria' };
     }
 
     return { success: true, data: account };
   } catch (error) {
     console.error('Error fetching account:', error);
-    return { success: false, error: 'Failed to fetch account' };
+    return { success: false, error: 'Error al obtener la cuenta' };
   }
 }
 
@@ -68,7 +68,7 @@ export async function createBankAccount(data: unknown): Promise<ActionResult<Acc
   try {
     const user = await getCurrentUser();
     if (!user) {
-      return { success: false, error: 'Unauthorized' };
+      return { success: false, error: 'No autorizado' };
     }
 
     // Transform data format if needed
@@ -77,7 +77,7 @@ export async function createBankAccount(data: unknown): Promise<ActionResult<Acc
     // currency_code should come directly from the enum (USD or COP)
     // If currency_id is provided but currency_code is not, we can't convert
     if (dataWithCurrency.currency_id && !dataWithCurrency.currency_code) {
-      return { success: false, error: 'Currency code is required. Please use currency_code (USD or COP) from the enum.' };
+      return { success: false, error: 'El código de moneda es obligatorio (USD o COP)' };
     }
 
     // Map account_type to kind (SAVINGS/CHECKING)
@@ -91,7 +91,7 @@ export async function createBankAccount(data: unknown): Promise<ActionResult<Acc
     // Get BANK_ACCOUNT account type
     const bankAccountType = await accountRepository.getAccountTypeByCode('BANK_ACCOUNT');
     if (!bankAccountType) {
-      return { success: false, error: 'BANK_ACCOUNT type not found' };
+      return { success: false, error: 'Tipo de cuenta bancaria no encontrado' };
     }
 
     // Extract bank account details
@@ -139,7 +139,7 @@ export async function createBankAccount(data: unknown): Promise<ActionResult<Acc
     if (error?.code === '42501' || error?.message?.includes('permission denied')) {
       return { 
         success: false, 
-        error: 'Permission denied. Please check that Row Level Security (RLS) policies are configured correctly in Supabase.' 
+        error: 'Permiso denegado. Verifica la configuración de seguridad en Supabase.' 
       };
     }
 
@@ -151,7 +151,7 @@ export async function createBankAccount(data: unknown): Promise<ActionResult<Acc
       };
     }
 
-    return { success: false, error: error?.message || 'Failed to create account' };
+    return { success: false, error: error?.message || 'Error al crear la cuenta' };
   }
 }
 
@@ -162,7 +162,7 @@ export async function updateBankAccount(
   try {
     const user = await getCurrentUser();
     if (!user) {
-      return { success: false, error: 'Unauthorized' };
+      return { success: false, error: 'No autorizado' };
     }
 
     // Transform data format if needed
@@ -171,7 +171,7 @@ export async function updateBankAccount(
     // currency_code should come directly from the enum (USD or COP)
     // If currency_id is provided but currency_code is not, we can't convert
     if (dataWithCurrency.currency_id && !dataWithCurrency.currency_code) {
-      return { success: false, error: 'Currency code is required. Please use currency_code (USD or COP) from the enum.' };
+      return { success: false, error: 'El código de moneda es obligatorio (USD o COP)' };
     }
 
     // Map account_type to kind (SAVINGS/CHECKING) if needed
@@ -212,7 +212,7 @@ export async function updateBankAccount(
     // Fetch updated account
     const updatedAccount = await accountRepository.getById(id, user.id);
     if (!updatedAccount) {
-      return { success: false, error: 'Account not found after update' };
+      return { success: false, error: 'Cuenta no encontrada tras la actualización' };
     }
 
     revalidatePath('/dashboard');
@@ -223,10 +223,72 @@ export async function updateBankAccount(
     console.error('Error updating account:', error);
     
     if (error instanceof Error && 'issues' in error) {
-      return { success: false, error: 'Validation error', details: error };
+      return { success: false, error: 'Error de validación', details: error };
     }
 
-    return { success: false, error: 'Failed to update account' };
+    return { success: false, error: 'Error al actualizar la cuenta' };
+  }
+}
+
+export async function getTotalBalanceInPreferredCurrency(): Promise<
+  ActionResult<{ total: number; preferredCode: string; preferredSymbol: string }>
+> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return { success: false, error: 'No autorizado' };
+    }
+
+    const supabase = await createClient();
+
+    // Get currencies with exchange rates
+    const { data: currencies, error: currError } = await supabase
+      .from('currencies')
+      .select('code, symbol, exchange_rate_to_preferred')
+      .eq('user_id', user.id);
+
+    if (currError) throw currError;
+
+    const bankAccountType = await accountRepository.getAccountTypeByCode('BANK_ACCOUNT');
+    if (!bankAccountType) {
+      return { success: true, data: { total: 0, preferredCode: 'COP', preferredSymbol: 'COP$' } };
+    }
+
+    const accounts = await accountRepository.getAll(user.id);
+    const bankAccounts = accounts.filter((a) => a.account_type_id === bankAccountType.id && a.status === 'ACTIVE');
+
+    const preferredCurrency =
+      currencies?.find((c) => c.exchange_rate_to_preferred === 1) ??
+      currencies?.find((c) => c.exchange_rate_to_preferred === null) ??
+      currencies?.[0];
+
+    const preferredCode = preferredCurrency?.code ?? 'COP';
+    const preferredSymbol = preferredCurrency?.symbol ?? 'COP$';
+
+    const rateByCode = new Map<string, number>();
+    for (const c of currencies ?? []) {
+      const rate = c.exchange_rate_to_preferred;
+      rateByCode.set(c.code, rate === null ? 1 : rate);
+    }
+
+    let total = 0;
+    for (const acc of bankAccounts) {
+      const balance = acc.balance ?? 0;
+      const rate = rateByCode.get(acc.currency_code) ?? 1;
+      total += balance * rate;
+    }
+
+    return {
+      success: true,
+      data: {
+        total: Math.round(total * 100) / 100,
+        preferredCode,
+        preferredSymbol,
+      },
+    };
+  } catch (error) {
+    console.error('Error fetching total balance:', error);
+    return { success: false, error: 'Error al obtener el balance total' };
   }
 }
 
@@ -234,7 +296,7 @@ export async function deleteBankAccount(id: string): Promise<ActionResult<void>>
   try {
     const user = await getCurrentUser();
     if (!user) {
-      return { success: false, error: 'Unauthorized' };
+      return { success: false, error: 'No autorizado' };
     }
 
     await accountRepository.delete(id, user.id);
@@ -245,6 +307,6 @@ export async function deleteBankAccount(id: string): Promise<ActionResult<void>>
     return { success: true, data: undefined };
   } catch (error) {
     console.error('Error deleting account:', error);
-    return { success: false, error: 'Failed to delete account' };
+    return { success: false, error: 'Error al eliminar la cuenta' };
   }
 }

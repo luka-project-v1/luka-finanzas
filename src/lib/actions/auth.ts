@@ -10,13 +10,13 @@ type ActionResult<T> =
   | { success: false; error: string; details?: unknown };
 
 const signUpSchema = z.object({
-  email: z.string().email('Invalid email address'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
+  email: z.string().email('Correo electrónico inválido'),
+  password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres'),
 });
 
 const signInSchema = z.object({
-  email: z.string().email('Invalid email address'),
-  password: z.string().min(1, 'Password is required'),
+  email: z.string().email('Correo electrónico inválido'),
+  password: z.string().min(1, 'La contraseña es obligatoria'),
 });
 
 export async function signUp(data: unknown): Promise<ActionResult<{ email: string }>> {
@@ -41,10 +41,10 @@ export async function signUp(data: unknown): Promise<ActionResult<{ email: strin
     console.error('Error signing up:', error);
     
     if (error instanceof z.ZodError) {
-      return { success: false, error: 'Validation error', details: error.errors };
+      return { success: false, error: 'Error de validación', details: error.errors };
     }
 
-    return { success: false, error: 'Failed to sign up' };
+    return { success: false, error: 'Error al crear la cuenta' };
   }
 }
 
@@ -61,22 +61,18 @@ export async function signIn(data: unknown): Promise<ActionResult<void>> {
     if (error) {
       return { success: false, error: error.message };
     }
-
-    revalidatePath('/', 'layout');
-    redirect('/dashboard');
   } catch (error) {
     console.error('Error signing in:', error);
-    
+
     if (error instanceof z.ZodError) {
-      return { success: false, error: 'Validation error', details: error.errors };
+      return { success: false, error: 'Error de validación', details: error.errors };
     }
 
-    if (error instanceof Error && error.message === 'NEXT_REDIRECT') {
-      throw error;
-    }
-
-    return { success: false, error: 'Failed to sign in' };
+    return { success: false, error: 'Error al iniciar sesión' };
   }
+
+  revalidatePath('/', 'layout');
+  redirect('/dashboard');
 }
 
 export async function signOut(): Promise<ActionResult<void>> {
@@ -87,18 +83,14 @@ export async function signOut(): Promise<ActionResult<void>> {
     if (error) {
       return { success: false, error: error.message };
     }
-
-    revalidatePath('/', 'layout');
-    redirect('/login');
   } catch (error) {
     console.error('Error signing out:', error);
-    
-    if (error instanceof Error && error.message === 'NEXT_REDIRECT') {
-      throw error;
-    }
 
-    return { success: false, error: 'Failed to sign out' };
+    return { success: false, error: 'Error al cerrar sesión' };
   }
+
+  revalidatePath('/', 'layout');
+  redirect('/login');
 }
 
 export async function getCurrentUser() {

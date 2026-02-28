@@ -41,10 +41,10 @@ export const transactionRepository = {
       .eq('user_id', userId);
 
     if (filters?.startDate) {
-      query = query.gte('occurred_at', filters.startDate);
+      query = query.gte('occurred_at', `${filters.startDate} 00:00:00`);
     }
     if (filters?.endDate) {
-      query = query.lte('occurred_at', filters.endDate);
+      query = query.lte('occurred_at', `${filters.endDate} 23:59:59`);
     }
     if (filters?.categoryId) {
       query = query.eq('category_id', filters.categoryId);
@@ -166,8 +166,8 @@ export const transactionRepository = {
       .select('signed_amount, kind, accounts!inner(account_types!inner(balance_nature))')
       .eq('user_id', userId)
       .eq('status', 'POSTED')
-      .gte('occurred_at', startDate)
-      .lte('occurred_at', endDate)
+      .gte('occurred_at', `${startDate} 00:00:00`)
+      .lte('occurred_at', `${endDate} 23:59:59`)
       .not('kind', 'in', '(TRANSFER,ADJUSTMENT)');
 
     if (error) throw error;

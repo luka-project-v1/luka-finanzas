@@ -1,141 +1,232 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import { signUp } from '@/lib/actions/auth';
 
+type SignUpState =
+  | { status: 'idle' }
+  | { status: 'success'; email: string }
+  | { status: 'error'; message: string };
+
 export default function SignUpPage() {
-  const router = useRouter();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [isPending, startTransition] = useTransition();
+  const [state, setState] = useState<SignUpState>({ status: 'idle' });
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setError('');
-    setLoading(true);
+    setState({ status: 'idle' });
 
-    if (password !== confirmPassword) {
-      setError('Las contraseñas no coinciden');
-      setLoading(false);
+    const formData = new FormData(e.currentTarget);
+    const password = formData.get('password') as string;
+    const confirm = formData.get('confirm') as string;
+
+    if (password !== confirm) {
+      setState({ status: 'error', message: 'Las contraseñas no coinciden.' });
       return;
     }
 
-    try {
-      const result = await signUp({ email, password });
-      
-      if (result.success) {
-        setSuccess(true);
-      } else if ('error' in result) {
-        setError(result.error);
-      }
-    } catch (err) {
-      setError('Ocurrió un error. Por favor intenta de nuevo.');
-    } finally {
-      setLoading(false);
-    }
-  };
+    const data = {
+      email: formData.get('email') as string,
+      password,
+    };
 
-  if (success) {
+    startTransition(async () => {
+      const result = await signUp(data);
+      if (result.success) {
+        setState({ status: 'success', email: result.data.email });
+      } else {
+        setState({ status: 'error', message: result.error });
+      }
+    });
+  }
+
+  if (state.status === 'success') {
     return (
-      <div className="bg-card rounded-lg shadow-lg p-8 text-center">
-        <h2 className="text-2xl font-bold mb-4 text-primary">¡Revisa tu correo!</h2>
-        <p className="text-muted-foreground mb-6">
-          Te enviamos un enlace de confirmación. Por favor revisa tu bandeja de entrada y haz clic en el enlace para activar tu cuenta.
-        </p>
-        <Link
-          href="/login"
-          className="inline-block bg-primary text-primary-foreground py-2 px-6 rounded-md font-medium hover:opacity-90 transition-opacity"
-        >
-          Ir a Iniciar Sesión
-        </Link>
+      <div className="w-full max-w-sm">
+        <div className="text-center mb-8">
+          <span className="text-4xl font-bold tracking-tight text-neu-accent">
+            Luka
+          </span>
+          <p className="mt-1 text-sm text-neu-muted">Control de Finanzas Personales</p>
+        </div>
+
+        <div className="neu-card p-8 text-center space-y-4">
+          {/* Ícono de verificación */}
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full shadow-soft-out">
+            <svg
+              className="h-7 w-7 text-luka-income"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+              aria-hidden="true"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">Revisa tu correo</h2>
+            <p className="mt-2 text-sm text-neu-muted">
+              Enviamos un enlace de confirmación a{' '}
+              <span className="text-foreground font-medium">{state.email}</span>.
+              Haz clic en el enlace para activar tu cuenta.
+            </p>
+          </div>
+
+          <Link
+            href="/login"
+            className="neu-btn neu-btn-primary inline-flex w-full justify-center mt-2"
+          >
+            Volver al inicio de sesión
+          </Link>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="bg-card rounded-lg shadow-lg p-8">
-      <div className="mb-8 text-center">
-        <h1 className="text-4xl font-bold text-primary mb-2">Luka</h1>
-        <p className="text-muted-foreground">Crea tu cuenta</p>
+    <div className="w-full max-w-sm">
+      {/* Marca */}
+      <div className="text-center mb-8">
+        <span className="text-4xl font-bold tracking-tight text-neu-accent">
+          Luka
+        </span>
+        <p className="mt-1 text-sm text-neu-muted">Control de Finanzas Personales</p>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {error && (
-          <div className="bg-destructive/10 text-destructive text-sm p-3 rounded-md">
-            {error}
+      {/* Tarjeta */}
+      <div className="neu-card p-8">
+        <h1 className="text-lg font-semibold text-foreground mb-1">
+          Crear cuenta
+        </h1>
+        <p className="text-sm text-neu-muted mb-6">
+          Empieza a gestionar tus finanzas hoy.
+        </p>
+
+        <form onSubmit={handleSubmit} noValidate className="space-y-4">
+          {/* Correo */}
+          <div className="space-y-1.5">
+            <label
+              htmlFor="email"
+              className="block text-xs font-medium text-neu-muted uppercase tracking-wider"
+            >
+              Correo electrónico
+            </label>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="email"
+              required
+              placeholder="tu@correo.com"
+              className="neu-input"
+              disabled={isPending}
+            />
           </div>
-        )}
 
-        <div>
-          <label htmlFor="email" className="block text-sm font-medium mb-2">
-            Email
-          </label>
-          <input
-            id="email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full px-4 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary bg-background"
-            required
-            disabled={loading}
-          />
-        </div>
+          {/* Contraseña */}
+          <div className="space-y-1.5">
+            <label
+              htmlFor="password"
+              className="block text-xs font-medium text-neu-muted uppercase tracking-wider"
+            >
+              Contraseña
+            </label>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              autoComplete="new-password"
+              required
+              minLength={8}
+              placeholder="Mín. 8 caracteres"
+              className="neu-input"
+              disabled={isPending}
+            />
+          </div>
 
-        <div>
-          <label htmlFor="password" className="block text-sm font-medium mb-2">
-            Contraseña
-          </label>
-          <input
-            id="password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full px-4 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary bg-background"
-            required
-            minLength={8}
-            disabled={loading}
-          />
-          <p className="text-xs text-muted-foreground mt-1">
-            Al menos 8 caracteres
-          </p>
-        </div>
+          {/* Confirmar contraseña */}
+          <div className="space-y-1.5">
+            <label
+              htmlFor="confirm"
+              className="block text-xs font-medium text-neu-muted uppercase tracking-wider"
+            >
+              Confirmar contraseña
+            </label>
+            <input
+              id="confirm"
+              name="confirm"
+              type="password"
+              autoComplete="new-password"
+              required
+              placeholder="Repite tu contraseña"
+              className="neu-input"
+              disabled={isPending}
+            />
+          </div>
 
-        <div>
-          <label htmlFor="confirmPassword" className="block text-sm font-medium mb-2">
-            Confirmar Contraseña
-          </label>
-          <input
-            id="confirmPassword"
-            type="password"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            className="w-full px-4 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary bg-background"
-            required
-            minLength={8}
-            disabled={loading}
-          />
-        </div>
+          {/* Error */}
+          {state.status === 'error' && (
+            <div
+              role="alert"
+              className="rounded-neu-sm border border-[#2a1414] bg-[#1a0e0e] px-4 py-3 text-sm text-luka-expense"
+            >
+              {state.message}
+            </div>
+          )}
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full bg-primary text-primary-foreground py-2 px-4 rounded-md font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
-        >
-          {loading ? 'Creando cuenta...' : 'Registrarse'}
-        </button>
+          {/* Enviar */}
+          <button
+            type="submit"
+            disabled={isPending}
+            className="neu-btn neu-btn-primary w-full mt-2"
+          >
+            {isPending ? (
+              <span className="flex items-center gap-2">
+                <svg
+                  className="h-4 w-4 animate-spin"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                  />
+                </svg>
+                Creando cuenta…
+              </span>
+            ) : (
+              'Crear cuenta'
+            )}
+          </button>
+        </form>
 
-        <p className="text-center text-sm text-muted-foreground">
+        {/* Divisor */}
+        <hr className="neu-divider" />
+
+        <p className="text-center text-sm text-neu-muted">
           ¿Ya tienes una cuenta?{' '}
-          <Link href="/login" className="text-primary hover:underline">
-            Inicia sesión
+          <Link
+            href="/login"
+            className="text-neu-accent hover:underline transition-colors"
+          >
+            Iniciar sesión
           </Link>
         </p>
-      </form>
+      </div>
     </div>
   );
 }
