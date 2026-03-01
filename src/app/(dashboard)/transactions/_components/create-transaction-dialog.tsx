@@ -8,10 +8,12 @@ import { Loader2, TrendingUp, TrendingDown, ArrowLeftRight, ArrowRight, X } from
 import { toast } from 'sonner';
 import { Dialog } from '@/components/ui/dialog';
 import { FieldLabel, FieldError, Input, Select } from '@/components/ui/form-fields';
-import { createTransaction } from '@/lib/actions/transactions';
-import type { CreateTransactionInput } from '@/lib/validations/transaction-schema';
+import { createTransaction, updateTransaction } from '@/lib/actions/transactions';
+import type { CreateTransactionInput, UpdateTransactionInput } from '@/lib/validations/transaction-schema';
 import { cn } from '@/lib/utils/cn';
 import type { AccountWithDetails } from '@/lib/repositories/account-repository';
+import type { TransactionWithRelations } from '@/lib/repositories/transaction-repository';
+import type { TransferInfo } from '@/lib/actions/transactions';
 import type { Database } from '@/lib/types/database.types';
 
 type Category = Database['public']['Tables']['categories']['Row'];
@@ -60,6 +62,16 @@ interface CreateTransactionDialogProps {
   onSuccess: () => void;
   accounts: AccountWithDetails[];
   categories: Category[];
+  /** When provided, form enters Edit mode: title "Editar Transacción", button "Guardar Cambios" */
+  initialData?: TransactionWithRelations | null;
+  /** Required when initialData is a transfer (has transfer_id) to resolve destination account */
+  transferInfo?: Record<string, TransferInfo>;
+}
+
+function toDatetimeLocal(iso: string): string {
+  const d = new Date(iso);
+  const offset = d.getTimezoneOffset() * 60000;
+  return new Date(d.getTime() - offset).toISOString().slice(0, 16);
 }
 
 export function CreateTransactionDialog({
@@ -68,8 +80,11 @@ export function CreateTransactionDialog({
   onSuccess,
   accounts,
   categories,
+  initialData,
+  transferInfo = {},
 }: CreateTransactionDialogProps) {
   const [serverError, setServerError] = useState<string | null>(null);
+  const isEditMode = !!initialData;
 
   // Default occurred_at = now (datetime-local format: YYYY-MM-DDTHH:mm)
   const nowLocal = new Date();
@@ -115,10 +130,38 @@ export function CreateTransactionDialog({
     if (!isTransfer) setValue('destination_account_id', '');
   }, [isTransfer, setValue]);
 
-  // Reset mode when dialog opens
+  // Reset mode when dialog opens; when edit mode, populate from initialData
   useEffect(() => {
-    if (open) setMode('expense');
-  }, [open]);
+    if (open && initialData) {
+      const signed = Number(initialData.signed_amount ?? 0);
+      const modeFromTx: TransactionMode =
+        initialData.kind === 'TRANSFER'
+          ? 'transfer'
+          : signed > 0
+            ? 'income'
+            : 'expense';
+      setMode(modeFromTx);
+      setValue('type', modeFromTx === 'income' ? 'income' : 'expense');
+      setValue('amount', Math.abs(signed).toString());
+      setValue('account_id', initialData.account_id ?? '');
+      setValue('description', initialData.description ?? '');
+      setValue('category_id', initialData.category_id ?? '');
+      setValue('occurred_at', initialData.occurred_at ? toDatetimeLocal(initialData.occurred_at) : defaultOccurredAt);
+      setValue('kind', initialData.kind ?? 'NORMAL');
+      setValue('status', initialData.status ?? 'POSTED');
+      if (initialData.kind === 'TRANSFER' && initialData.transfer_id && transferInfo[initialData.transfer_id]) {
+        const info = transferInfo[initialData.transfer_id];
+        // Always use canonical from→to: Desde=from, Hacia=to
+        setValue('account_id', info.fromAccount.id);
+        setValue('destination_account_id', info.toAccount.id);
+      } else {
+        setValue('destination_account_id', '');
+      }
+    } else if (open) {
+      setMode('expense');
+    }
+  }, [open, initialData, transferInfo, setValue, defaultOccurredAt]);
+
 
   function exitTransferMode() {
     setMode('expense');
@@ -137,8 +180,50 @@ export function CreateTransactionDialog({
     setServerError(null);
 
     const rawAmount = parseFloat(values.amount);
-    // Keep the local wall-clock time exactly as the user entered it.
-    const occurred_at_local = values.occurred_at.replace('T', ' ') + ':00';
+    // datetime-local gives "YYYY-MM-DDTHH:mm" - Zod coerce.date() accepts and transforms to DB format
+    const occurredAt = values.occurred_at;
+
+    if (isEditMode && initialData) {
+      const payload: UpdateTransactionInput = {
+        occurred_at: occurredAt,
+        kind: values.kind,
+        status: values.status,
+        description: values.description || null,
+        category_id: isTransfer ? null : (values.category_id || null),
+      };
+      if (isTransfer) {
+        payload.account_id = values.account_id;
+        payload.destination_account_id = values.destination_account_id || undefined;
+        payload.signed_amount = rawAmount; // positive amount; backend applies sign per leg
+      } else {
+        const signedAmount = mode === 'income' ? rawAmount : -rawAmount;
+        payload.account_id = values.account_id;
+        payload.signed_amount = signedAmount;
+      }
+      const result = await updateTransaction(initialData.id, payload);
+      if (result.success) {
+        reset();
+        toast.success('Transacción actualizada correctamente');
+        onSuccess();
+        handleClose();
+      } else {
+        const fail = result as { success: false; error: string; details?: { issues?: Array<{ path: (string | number)[]; message: string }> } };
+        const details = fail.details;
+        if (details?.issues?.length) {
+          for (const issue of details.issues) {
+            const field = issue.path[0];
+            if (typeof field === 'string' && ['account_id', 'destination_account_id', 'signed_amount', 'description', 'category_id', 'occurred_at', 'kind', 'status'].includes(field)) {
+              const formField = field === 'signed_amount' ? 'amount' : field;
+              setError(formField as keyof FormValues, { type: 'server', message: issue.message });
+            }
+          }
+        } else {
+          setServerError(fail.error);
+          toast.error(fail.error);
+        }
+      }
+      return;
+    }
 
     let payload: CreateTransactionInput;
 
@@ -150,7 +235,7 @@ export function CreateTransactionDialog({
         signed_amount: rawAmount, // positive amount being transferred
         description: values.description || null,
         category_id: null,
-        occurred_at: occurred_at_local,
+        occurred_at: occurredAt,
         kind: 'TRANSFER',
         status: values.status,
         source: 'MANUAL',
@@ -162,7 +247,7 @@ export function CreateTransactionDialog({
         signed_amount: signedAmount,
         description: values.description || null,
         category_id: values.category_id || null,
-        occurred_at: occurred_at_local,
+        occurred_at: occurredAt,
         kind: values.kind,
         status: values.status,
         source: 'MANUAL',
@@ -180,7 +265,8 @@ export function CreateTransactionDialog({
       handleClose();
     } else {
       // Map validation errors to form fields if details contain Zod issues
-      const details = result.details as { issues?: Array<{ path: (string | number)[]; message: string }> } | undefined;
+      const fail = result as { success: false; error: string; details?: { issues?: Array<{ path: (string | number)[]; message: string }> } };
+      const details = fail.details;
       if (details?.issues?.length) {
         for (const issue of details.issues) {
           const field = issue.path[0];
@@ -190,8 +276,8 @@ export function CreateTransactionDialog({
           }
         }
       } else {
-        setServerError(result.error);
-        toast.error(result.error);
+        setServerError(fail.error);
+        toast.error(fail.error);
       }
     }
   }
@@ -203,23 +289,27 @@ export function CreateTransactionDialog({
     <Dialog
       open={open}
       onOpenChange={handleClose}
-      title="Nueva Transacción"
-      description="Registra un ingreso o gasto."
+      title={isEditMode ? 'Editar Transacción' : 'Nueva Transacción'}
+      description={isEditMode ? 'Modifica los datos de la transacción.' : 'Registra un ingreso o gasto.'}
       header={
         isTransfer ? (
           <div className="flex items-center justify-between w-full">
             <div className="flex items-center gap-2">
               <ArrowLeftRight className="w-5 h-5 text-luka-info shrink-0" strokeWidth={2} />
-              <span className="text-base font-semibold text-white/90 tracking-tight">Nuevo Traspaso</span>
+              <span className="text-base font-semibold text-white/90 tracking-tight">
+                {isEditMode ? 'Editar Traspaso' : 'Nuevo Traspaso'}
+              </span>
             </div>
-            <button
-              type="button"
-              onClick={exitTransferMode}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-[0.75rem] text-xs text-neu-muted hover:text-white/70 border border-neu bg-neu-raised shadow-soft-out transition-all duration-150"
-            >
-              <X className="w-3.5 h-3.5" />
-              Cancelar
-            </button>
+            {!isEditMode && (
+              <button
+                type="button"
+                onClick={exitTransferMode}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-[0.75rem] text-xs text-neu-muted hover:text-white/70 border border-neu bg-neu-raised shadow-soft-out transition-all duration-150"
+              >
+                <X className="w-3.5 h-3.5" />
+                Cancelar
+              </button>
+            )}
           </div>
         ) : undefined
       }
@@ -310,7 +400,7 @@ export function CreateTransactionDialog({
           {isTransfer ? (
             <div className="flex items-center gap-3">
               <div className="flex-1 min-w-0">
-                <FieldLabel required>Origen</FieldLabel>
+                <FieldLabel required>Desde</FieldLabel>
                 <Select {...register('account_id')}>
                   <option value="">Seleccionar…</option>
                   {activeAccounts.map((acc) => (
@@ -327,7 +417,7 @@ export function CreateTransactionDialog({
                 </div>
               </div>
               <div className="flex-1 min-w-0">
-                <FieldLabel required>Destino</FieldLabel>
+                <FieldLabel required>Hacia</FieldLabel>
                 <Select {...register('destination_account_id')}>
                   <option value="">Seleccionar…</option>
                   {destinationAccountOptions.map((acc) => (
@@ -456,6 +546,8 @@ export function CreateTransactionDialog({
           >
             {isSubmitting ? (
               <Loader2 className="w-4 h-4 animate-spin" />
+            ) : isEditMode ? (
+              'Guardar Cambios'
             ) : isTransfer ? (
               'Realizar Traspaso'
             ) : (

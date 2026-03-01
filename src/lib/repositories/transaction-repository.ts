@@ -166,7 +166,6 @@ export const transactionRepository = {
 
   async update(id: string, userId: string, updates: TransactionUpdate): Promise<TransactionWithRelations> {
     const supabase = await createClient();
-    
     const { data, error } = await supabase
       .from('transactions')
       .update(updates)
@@ -184,6 +183,93 @@ export const transactionRepository = {
 
     if (error) throw error;
     return data as TransactionWithRelations;
+  },
+
+  /**
+   * Updates both legs of a transfer when account/amount changes.
+   * Returns the updated transaction that was passed in (debit or credit).
+   */
+  async updateTransferLegs(
+    userId: string,
+    transactionId: string,
+    updates: {
+      fromAccountId: string;
+      toAccountId: string;
+      amount: number;
+      occurred_at?: string;
+      description?: string | null;
+      status?: Database['public']['Enums']['transaction_status'];
+    }
+  ): Promise<TransactionWithRelations> {
+    const supabase = await createClient();
+    const tx = await this.getById(transactionId, userId);
+    if (!tx?.transfer_id) throw new Error('Transaction is not part of a transfer');
+
+    const { data: transfer, error: tErr } = await supabase
+      .from('transfers')
+      .select('from_transaction_id, to_transaction_id')
+      .eq('id', tx.transfer_id)
+      .eq('user_id', userId)
+      .single();
+
+    if (tErr || !transfer) throw new Error('Transfer not found');
+
+    const debitId = transfer.from_transaction_id;
+    const creditId = transfer.to_transaction_id;
+    if (!debitId || !creditId) throw new Error('Transfer legs incomplete');
+
+    const now = new Date().toISOString();
+    const amount = Math.abs(updates.amount);
+
+    const baseUpdate = {
+      occurred_at: updates.occurred_at,
+      description: updates.description,
+      status: updates.status,
+      updated_at: now,
+    };
+
+    const { error: debitErr } = await supabase
+      .from('transactions')
+      .update({
+        account_id: updates.fromAccountId,
+        signed_amount: -amount,
+        ...baseUpdate,
+      })
+      .eq('id', debitId)
+      .eq('user_id', userId);
+
+    if (debitErr) throw debitErr;
+
+    const { error: creditErr } = await supabase
+      .from('transactions')
+      .update({
+        account_id: updates.toAccountId,
+        signed_amount: amount,
+        ...baseUpdate,
+      })
+      .eq('id', creditId)
+      .eq('user_id', userId);
+
+    if (creditErr) throw creditErr;
+
+    const { error: transferErr } = await supabase
+      .from('transfers')
+      .update({
+        from_account_id: updates.fromAccountId,
+        to_account_id: updates.toAccountId,
+        amount,
+        occurred_at: updates.occurred_at,
+        status: updates.status,
+        updated_at: now,
+      })
+      .eq('id', tx.transfer_id)
+      .eq('user_id', userId);
+
+    if (transferErr) throw transferErr;
+
+    const updated = await this.getById(transactionId, userId);
+    if (!updated) throw new Error('Failed to fetch updated transaction');
+    return updated;
   },
 
   async delete(id: string, userId: string): Promise<void> {

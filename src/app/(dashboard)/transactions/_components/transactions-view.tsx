@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition, useCallback } from 'react';
+import { useState, useTransition, useCallback, useEffect, useRef } from 'react';
 import {
   Plus,
   ArrowUpRight,
@@ -12,8 +12,11 @@ import {
   SlidersHorizontal,
   X,
   History,
+  CheckCircle,
+  MoreVertical,
+  Pencil,
 } from 'lucide-react';
-import { getLastAdjustmentDates } from '@/lib/actions/transactions';
+import { getLastAdjustmentDates, updateTransaction } from '@/lib/actions/transactions';
 import { format } from 'date-fns';
 import { getTransactions } from '@/lib/actions/transactions';
 import { formatCurrency } from '@/lib/utils/currency';
@@ -27,6 +30,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { CreateTransactionDialog } from './create-transaction-dialog';
+import { toast } from 'sonner';
 import type { TransactionWithRelations } from '@/lib/repositories/transaction-repository';
 import type { AccountWithDetails } from '@/lib/repositories/account-repository';
 import type { TransferInfo } from '@/lib/actions/transactions';
@@ -78,7 +82,7 @@ const STATUS_LABELS: Record<string, string> = {
 function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
     POSTED:  'bg-luka-income/10 text-luka-income border-luka-income/20',
-    PENDING: 'bg-luka-warning/10 text-luka-warning border-luka-warning/20',
+    PENDING: 'bg-[#D97757]/10 text-[#D97757] border-[#D97757]/20',
     VOID:    'bg-neu-raised text-neu-muted border-neu',
   };
   return (
@@ -229,6 +233,88 @@ function FilterBar({ filters, accounts, categories, isPending, onChange, onClear
   );
 }
 
+// ─── Transaction row actions (Mark as Paid + Edit menu) ─────────────────────
+function TransactionRowActions({
+  tx,
+  isPending,
+  onMarkAsPaid,
+  onEdit,
+}: {
+  tx: TransactionWithRelations;
+  isPending: boolean;
+  onMarkAsPaid: () => void;
+  onEdit: () => void;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    if (menuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [menuOpen]);
+
+  return (
+    <div className="flex items-center justify-end gap-1" ref={ref}>
+      {isPending && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={onMarkAsPaid}
+              className="flex items-center justify-center w-8 h-8 rounded-full text-[#D97757] hover:bg-[#D97757]/15 transition-colors duration-150"
+              aria-label="Marcar como pagado"
+            >
+              <CheckCircle className="w-4 h-4" strokeWidth={2} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="left">Marcar como pagado</TooltipContent>
+        </Tooltip>
+      )}
+      <div className="relative">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => setMenuOpen((o) => !o)}
+              className="flex items-center justify-center w-8 h-8 rounded-full text-white/40 hover:text-white/70 hover:bg-neu-raised transition-colors duration-150"
+              aria-label="Más opciones"
+            >
+              <MoreVertical className="w-4 h-4" strokeWidth={2} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="left">Más opciones</TooltipContent>
+        </Tooltip>
+        {menuOpen && (
+          <div
+            className="absolute right-0 top-full mt-1 z-50 min-w-[140px] py-1 rounded-[0.75rem] bg-[#161616] border border-[#1e1e1e] shadow-soft-out-md"
+            role="menu"
+          >
+            <button
+              type="button"
+              onClick={() => {
+                onEdit();
+                setMenuOpen(false);
+              }}
+              className="flex items-center gap-2 w-full px-3 py-2 text-left text-sm text-white/80 hover:bg-[#1a1a1a] hover:text-white transition-colors"
+              role="menuitem"
+            >
+              <Pencil className="w-3.5 h-3.5" strokeWidth={2} />
+              Editar
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Historical badge ───────────────────────────────────────────────────────
 function HistoricalBadge() {
   return (
@@ -245,11 +331,15 @@ function TransactionRow({
   categories,
   lastAdjustmentByAccount,
   transferInfo,
+  onMarkAsPaid,
+  onEdit,
 }: {
   tx: TransactionWithRelations;
   categories: Category[];
   lastAdjustmentByAccount: Record<string, { date: string; id: string }>;
   transferInfo: Record<string, TransferInfo>;
+  onMarkAsPaid: (tx: TransactionWithRelations) => void;
+  onEdit: (tx: TransactionWithRelations) => void;
 }) {
   const signed = Number(tx.signed_amount ?? 0);
   const isIncome = signed > 0;
@@ -274,12 +364,16 @@ function TransactionRow({
       ? tx.id !== lastAdj.id
       : tx.occurred_at <= lastAdj.date
   );
+  const isPending = tx.status === 'PENDING';
 
   const rowContent = (
     <tr className={cn(
-      'group border-b border-[#1a1a1a] last:border-0',
+      'group border-b last:border-0',
       'hover:bg-[#161616]/60 transition-colors duration-100',
       isHistorical && 'opacity-40 grayscale',
+      isPending
+        ? 'border-dashed border-[#D97757]/50 bg-[#D97757]/[0.03]'
+        : 'border-[#1a1a1a]',
     )}>
       {/* Category + Description */}
       <td className="px-5 py-4">
@@ -299,11 +393,15 @@ function TransactionRow({
             <p className={cn(
               'text-sm font-medium truncate max-w-[200px]',
               isHistorical ? 'text-white/40 line-through decoration-white/20' : 'text-white/80',
+              isPending && !isHistorical && 'text-[#D97757]/90',
             )}>
               {transferLabel ?? tx.description ?? '—'}
             </p>
             <div className="flex items-center gap-1.5 mt-0.5">
-              <p className="text-xs text-neu-muted truncate">
+              <p className={cn(
+                'text-xs truncate',
+                isPending && !isHistorical ? 'text-[#D97757]/70' : 'text-neu-muted',
+              )}>
                 {category?.name ?? (KIND_LABELS[tx.kind] ?? tx.kind)}
               </p>
               {isHistorical && <HistoricalBadge />}
@@ -353,6 +451,16 @@ function TransactionRow({
           {formatCurrency(Math.abs(signed), '$')}
         </span>
       </td>
+
+      {/* Actions */}
+      <td className="px-5 py-4 w-14">
+        <TransactionRowActions
+          tx={tx}
+          isPending={isPending}
+          onMarkAsPaid={() => onMarkAsPaid(tx)}
+          onEdit={() => onEdit(tx)}
+        />
+      </td>
     </tr>
   );
 
@@ -364,7 +472,7 @@ function TransactionRow({
         {rowContent}
       </TooltipTrigger>
       <TooltipContent side="top">
-        Este registro es histórico y no afecta el balance actual debido a un ajuste posterior.
+        Este registro es histórico y no afecta el saldo actual debido a un ajuste posterior.
       </TooltipContent>
     </Tooltip>
   );
@@ -483,6 +591,8 @@ export function TransactionsView({
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState<Filters>(defaultFilters);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [transactionToEdit, setTransactionToEdit] = useState<TransactionWithRelations | null>(null);
   const [lastAdjustmentByAccount, setLastAdjustmentByAccount] = useState<
     Record<string, { date: string; id: string }>
   >(initialLastAdjustmentByAccount);
@@ -535,8 +645,34 @@ export function TransactionsView({
 
   function handleSuccess() {
     setDialogOpen(false);
+    setEditDialogOpen(false);
+    setTransactionToEdit(null);
     refreshAdjustmentDates();
     fetchPage(filters, page);
+  }
+
+  async function handleMarkAsPaid(tx: TransactionWithRelations) {
+    // Optimistic update
+    setTransactions((prev) =>
+      prev.map((t) => (t.id === tx.id ? { ...t, status: 'POSTED' as const } : t))
+    );
+    const result = await updateTransaction(tx.id, { status: 'POSTED' });
+    if (result.success) {
+      toast.success('Transacción marcada como pagada');
+      refreshAdjustmentDates();
+      fetchPage(filters, page);
+    } else {
+      // Revert optimistic update
+      setTransactions((prev) =>
+        prev.map((t) => (t.id === tx.id ? { ...t, status: 'PENDING' as const } : t))
+      );
+      toast.error((result as { success: false; error: string }).error);
+    }
+  }
+
+  function handleEdit(tx: TransactionWithRelations) {
+    setTransactionToEdit(tx);
+    setEditDialogOpen(true);
   }
 
   return (
@@ -585,6 +721,7 @@ export function TransactionsView({
                       { label: 'Fecha',        className: 'hidden sm:table-cell px-5 py-3 text-left' },
                       { label: 'Estado',       className: 'hidden lg:table-cell px-5 py-3 text-left' },
                       { label: 'Monto',        className: 'px-5 py-3 text-right' },
+                      { label: '',             className: 'px-5 py-3 text-right w-14' },
                     ].map((h) => (
                       <th
                         key={h.label}
@@ -609,6 +746,8 @@ export function TransactionsView({
                         categories={categories}
                         lastAdjustmentByAccount={lastAdjustmentByAccount}
                         transferInfo={transferInfo}
+                        onMarkAsPaid={handleMarkAsPaid}
+                        onEdit={handleEdit}
                       />
                     ))}
                   </tbody>
@@ -631,13 +770,29 @@ export function TransactionsView({
         )}
       </div>
 
-      {/* ── Dialog ── */}
+      {/* ── Create Dialog ── */}
       <CreateTransactionDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         onSuccess={handleSuccess}
         accounts={accounts}
         categories={categories}
+      />
+
+      {/* ── Edit Dialog ── */}
+      <CreateTransactionDialog
+        open={editDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditDialogOpen(false);
+            setTransactionToEdit(null);
+          }
+        }}
+        onSuccess={handleSuccess}
+        accounts={accounts}
+        categories={categories}
+        initialData={transactionToEdit}
+        transferInfo={transferInfo}
       />
     </>
   );

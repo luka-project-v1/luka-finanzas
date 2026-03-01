@@ -55,8 +55,8 @@ export function convertCurrency(
  *   COP → 4200   (1 USD = 4200 COP)
  *
  * Formula: amount × (rateDest / rateOrigin)
- *   - COP → USD: 1_000_000 × (1 / 3761) ≈ 265.89 USD
- *   - USD → COP: 1_000    × (4200 / 1) = 4_200_000 COP
+ *   - COP → USD: divide by rate (e.g. 4_200_000 × (1 / 4200) = 1_000 USD)
+ *   - USD → COP: multiply by rate (e.g. 1_000 × (4200 / 1) = 4_200_000 COP)
  *
  * Uses Decimal.js for full precision and to avoid floating-point errors.
  * Returns the original amount when both codes are the same.

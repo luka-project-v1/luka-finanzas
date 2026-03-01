@@ -1,6 +1,7 @@
 'use server';
 
 import { z } from 'zod';
+import Decimal from 'decimal.js';
 import { revalidatePath } from 'next/cache';
 import { transactionRepository } from '@/lib/repositories/transaction-repository';
 import { accountRepository } from '@/lib/repositories/account-repository';
@@ -139,10 +140,7 @@ export async function createTransaction(data: unknown): Promise<ActionResult<Tra
           ? amountInSource
           : convertToBase(amountInSource, sourceCurrency, destCurrency, rateByCode);
 
-      const occurredAt =
-        typeof validated.occurred_at === 'string'
-          ? validated.occurred_at
-          : new Date(validated.occurred_at).toISOString().replace('T', ' ').slice(0, 19) + ':00';
+      const occurredAt = validated.occurred_at;
 
       const { debitTx } = await transactionRepository.createTransferWithTransactions({
         userId: user.id,
@@ -164,9 +162,19 @@ export async function createTransaction(data: unknown): Promise<ActionResult<Tra
 
     // Normal transaction: single insert
     const { destination_account_id: _, ...rest } = validated;
+    const occurredAt = rest.occurred_at;
+
     const transaction = await transactionRepository.create({
-      ...rest,
+      account_id: rest.account_id,
+      signed_amount: rest.signed_amount,
+      occurred_at: occurredAt,
       user_id: user.id,
+      kind: rest.kind ?? 'NORMAL',
+      status: rest.status ?? 'POSTED',
+      category_id: rest.category_id ?? null,
+      description: rest.description ?? null,
+      posted_at: rest.posted_at ?? null,
+      source: rest.source ?? 'MANUAL',
     });
 
     revalidatePath('/dashboard');
@@ -198,20 +206,132 @@ export async function updateTransaction(
       return { success: false, error: 'No autorizado' };
     }
 
+    // Task 1: Retrieve snapshot BEFORE validation — we need it to merge and for anchor guard
+    const snapshot = await transactionRepository.getById(id, user.id);
+    if (!snapshot) {
+      return { success: false, error: 'Transacción no encontrada' };
+    }
+
     const validated = updateTransactionSchema.parse(data);
 
-    // Update transaction
-    const transaction = await transactionRepository.update(id, user.id, validated);
+    // Task 2: Anchor Guard — get last adjustment dates for affected account(s)
+    const accountIdsToCheck: string[] = [snapshot.account_id].filter(Boolean) as string[];
+    let transferInfo: { fromAccount: { id: string }; toAccount: { id: string } } | undefined;
+    if (snapshot.transfer_id && snapshot.account_id) {
+      const transferMap = await transactionRepository.getTransfersWithAccounts(user.id, [snapshot.transfer_id]);
+      transferInfo = transferMap.get(snapshot.transfer_id);
+      if (transferInfo) {
+        accountIdsToCheck.push(transferInfo.fromAccount.id, transferInfo.toAccount.id);
+      }
+    }
+    const lastAdjMap = await transactionRepository.getLastAdjustmentPerAccount(user.id, Array.from(new Set(accountIdsToCheck)));
 
+    const snapshotOccurredAt = snapshot.occurred_at ?? '';
+    const isHistoric = accountIdsToCheck.some((accId) => {
+      const adj = lastAdjMap.get(accId);
+      return adj && snapshotOccurredAt && snapshotOccurredAt <= adj.date;
+    });
+
+    // If historic: only allow description and category_id
+    if (isHistoric) {
+      const hasNumericOrStructuralChange =
+        validated.signed_amount != null ||
+        validated.occurred_at != null ||
+        validated.status != null ||
+        validated.account_id != null ||
+        validated.destination_account_id != null;
+      if (hasNumericOrStructuralChange) {
+        return {
+          success: false,
+          error:
+            'No puedes modificar una transacción histórica (anterior a un ajuste). Solo puedes editar la descripción o categoría.',
+        };
+      }
+    } else {
+      // Active transaction: if user is changing occurred_at, validate it's not before last adjustment
+      const newOccurredAt = validated.occurred_at ?? snapshotOccurredAt;
+      if (newOccurredAt) {
+        for (const accId of accountIdsToCheck) {
+          const adj = lastAdjMap.get(accId);
+          if (adj && newOccurredAt < adj.date) {
+            return {
+              success: false,
+              error: 'No puedes mover una transacción a un periodo ya cerrado por un ajuste',
+            };
+          }
+        }
+      }
+    }
+
+    // Task 1: Merge validated with snapshot — preserve original values for omitted fields
+    // For historic transactions, only description and category_id are allowed
+    const finalAccountId = isHistoric ? snapshot.account_id : (validated.account_id ?? snapshot.account_id ?? undefined);
+    const finalFromAccountId = snapshot.transfer_id
+      ? (validated.account_id ?? transferInfo?.fromAccount.id)
+      : finalAccountId;
+    const finalToAccountId = snapshot.transfer_id
+      ? (validated.destination_account_id ?? transferInfo?.toAccount.id)
+      : undefined;
+    const finalOccurredAt = isHistoric ? snapshotOccurredAt : (validated.occurred_at ?? snapshotOccurredAt);
+    const finalStatus = isHistoric ? snapshot.status : (validated.status ?? snapshot.status ?? 'POSTED');
+    const finalAmount = isHistoric
+      ? (snapshot.signed_amount != null ? Number(snapshot.signed_amount) : undefined)
+      : (validated.signed_amount != null
+          ? new Decimal(validated.signed_amount).toDecimalPlaces(2).toNumber()
+          : (snapshot.signed_amount != null ? Number(snapshot.signed_amount) : undefined));
+
+    let transaction: TransactionWithRelations;
+
+    if (
+      snapshot.transfer_id &&
+      !isHistoric &&
+      finalFromAccountId != null &&
+      finalToAccountId != null &&
+      finalAmount != null &&
+      transferInfo
+    ) {
+      transaction = await transactionRepository.updateTransferLegs(user.id, id, {
+        fromAccountId: finalFromAccountId,
+        toAccountId: finalToAccountId,
+        amount: Math.abs(finalAmount),
+        occurred_at: finalOccurredAt,
+        description: validated.description ?? snapshot.description ?? undefined,
+        status: finalStatus,
+      });
+    } else {
+      const updates: Record<string, unknown> = isHistoric
+        ? {
+            description: validated.description ?? snapshot.description ?? null,
+            category_id: validated.category_id !== undefined ? validated.category_id : snapshot.category_id,
+          }
+        : {
+            account_id: finalAccountId ?? snapshot.account_id,
+            occurred_at: finalOccurredAt,
+            status: finalStatus,
+            description: validated.description ?? snapshot.description ?? null,
+            category_id: validated.category_id !== undefined ? validated.category_id : snapshot.category_id,
+          };
+      if (!isHistoric && finalAmount != null) {
+        updates.signed_amount = finalAmount;
+      }
+      transaction = await transactionRepository.update(id, user.id, updates as Parameters<typeof transactionRepository.update>[2]);
+    }
+
+    // Task 3: Revalidate so balance is recalculated on next fetch (calculateBalance runs from last adjustment)
     revalidatePath('/dashboard');
     revalidatePath('/transactions');
+    revalidatePath('/accounts');
 
     return { success: true, data: transaction };
   } catch (error) {
     console.error('Error updating transaction:', error);
-    
-    if (error instanceof Error && 'issues' in error) {
-      return { success: false, error: 'Error de validación', details: error };
+
+    if (error instanceof z.ZodError) {
+      return {
+        success: false,
+        error: 'Error de validación',
+        details: { issues: error.issues },
+      };
     }
 
     return { success: false, error: 'Error al actualizar la transacción' };
