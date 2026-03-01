@@ -1,8 +1,7 @@
 import { z } from 'zod';
 
-export const createTransactionSchema = z.object({
+const baseTransactionSchema = {
   account_id: z.string().uuid('Cuenta inválida'),
-  // Coerce to number: Server Actions may serialize numbers as strings over the wire
   signed_amount: z.coerce
     .number()
     .refine((val) => val !== 0, { message: 'El monto no puede ser cero' }),
@@ -17,7 +16,6 @@ export const createTransactionSchema = z.object({
     ])
     .transform((v) => (v === '' || v == null ? null : v)),
   description: z.string().max(500).optional().nullable(),
-  // Accept ISO string or Date-like value; normalize to ISO string
   occurred_at: z.union([
     z.string().datetime({ message: 'Formato de fecha inválido' }),
     z.coerce.date().transform((d) => d.toISOString()),
@@ -28,7 +26,25 @@ export const createTransactionSchema = z.object({
     .optional()
     .nullable(),
   source: z.string().max(50).optional().nullable().default('MANUAL'),
-});
+};
+
+export const createTransactionSchema = z
+  .object({
+    ...baseTransactionSchema,
+    destination_account_id: z.string().uuid('Cuenta de destino inválida').optional(),
+  })
+  .refine(
+    (data) => {
+      if (data.kind === 'TRANSFER') {
+        return (
+          !!data.destination_account_id &&
+          data.destination_account_id !== data.account_id
+        );
+      }
+      return true;
+    },
+    { message: 'La cuenta de destino debe ser diferente a la de origen', path: ['destination_account_id'] }
+  );
 
 export const updateTransactionSchema = z.object({
   account_id: z.string().uuid('Cuenta inválida').optional(),

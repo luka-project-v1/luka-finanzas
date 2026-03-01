@@ -29,6 +29,7 @@ import {
 import { CreateTransactionDialog } from './create-transaction-dialog';
 import type { TransactionWithRelations } from '@/lib/repositories/transaction-repository';
 import type { AccountWithDetails } from '@/lib/repositories/account-repository';
+import type { TransferInfo } from '@/lib/actions/transactions';
 import type { Database } from '@/lib/types/database.types';
 
 type Category = Database['public']['Tables']['categories']['Row'];
@@ -243,16 +244,26 @@ function TransactionRow({
   tx,
   categories,
   lastAdjustmentByAccount,
+  transferInfo,
 }: {
   tx: TransactionWithRelations;
   categories: Category[];
   lastAdjustmentByAccount: Record<string, { date: string; id: string }>;
+  transferInfo: Record<string, TransferInfo>;
 }) {
   const signed = Number(tx.signed_amount ?? 0);
   const isIncome = signed > 0;
   const isNeutral = tx.kind === 'TRANSFER' || tx.kind === 'ADJUSTMENT';
   const category = categories.find((c) => c.id === tx.category_id);
   const account = tx.accounts as any;
+
+  const info = tx.transfer_id ? transferInfo[tx.transfer_id] : null;
+  const transferLabel =
+    info && tx.kind === 'TRANSFER'
+      ? signed < 0
+        ? `Hacia: ${info.toAccount.name}`
+        : `Desde: ${info.fromAccount.name}`
+      : null;
 
   // A row is "historical" (does not affect the current balance) when:
   //  - It is an ADJUSTMENT and it is NOT the most recent one for its account, OR
@@ -289,7 +300,7 @@ function TransactionRow({
               'text-sm font-medium truncate max-w-[200px]',
               isHistorical ? 'text-white/40 line-through decoration-white/20' : 'text-white/80',
             )}>
-              {tx.description || '—'}
+              {transferLabel ?? tx.description ?? '—'}
             </p>
             <div className="flex items-center gap-1.5 mt-0.5">
               <p className="text-xs text-neu-muted truncate">
@@ -448,6 +459,7 @@ interface TransactionsViewProps {
   initialTransactions: TransactionWithRelations[];
   initialTotal: number;
   initialTotalPages: number;
+  initialTransferInfo: Record<string, TransferInfo>;
   accounts: AccountWithDetails[];
   categories: Category[];
   initialLastAdjustmentByAccount: Record<string, { date: string; id: string }>;
@@ -457,6 +469,7 @@ export function TransactionsView({
   initialTransactions,
   initialTotal,
   initialTotalPages,
+  initialTransferInfo,
   accounts,
   categories,
   initialLastAdjustmentByAccount,
@@ -466,6 +479,7 @@ export function TransactionsView({
   const [transactions, setTransactions] = useState(initialTransactions);
   const [total, setTotal] = useState(initialTotal);
   const [totalPages, setTotalPages] = useState(initialTotalPages);
+  const [transferInfo, setTransferInfo] = useState(initialTransferInfo);
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState<Filters>(defaultFilters);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -489,6 +503,7 @@ export function TransactionsView({
           setTransactions(result.data.data);
           setTotal(result.data.count);
           setTotalPages(result.data.totalPages);
+          setTransferInfo(result.data.transferInfo ?? {});
           setPage(newPage);
         }
       });
@@ -593,6 +608,7 @@ export function TransactionsView({
                         tx={tx}
                         categories={categories}
                         lastAdjustmentByAccount={lastAdjustmentByAccount}
+                        transferInfo={transferInfo}
                       />
                     ))}
                   </tbody>

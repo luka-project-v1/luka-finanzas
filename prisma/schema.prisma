@@ -262,7 +262,7 @@ model Transaction {
 // ================================
 
 model Transfer {
-  id                String            @id @default(uuid())
+  id                String            @id @default(dbgenerated("gen_random_uuid()"))
   userId            String            @map("user_id")
   fromAccountId     String            @map("from_account_id")
   toAccountId       String            @map("to_account_id")

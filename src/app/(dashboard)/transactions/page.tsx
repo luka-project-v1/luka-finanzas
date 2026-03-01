@@ -22,6 +22,7 @@ export default async function TransactionsPage() {
   const initialTransactions = txResult.success ? txResult.data.data : [];
   const initialTotal        = txResult.success ? txResult.data.count : 0;
   const initialTotalPages   = txResult.success ? txResult.data.totalPages : 0;
+  const initialTransferInfo = txResult.success ? txResult.data.transferInfo ?? {} : {};
   const accounts            = accountsResult.success ? accountsResult.data : [];
   const categories          = categoriesResult.success ? categoriesResult.data : [];
 
@@ -35,6 +36,7 @@ export default async function TransactionsPage() {
       initialTransactions={initialTransactions}
       initialTotal={initialTotal}
       initialTotalPages={initialTotalPages}
+      initialTransferInfo={initialTransferInfo}
       accounts={accounts}
       categories={categories}
       initialLastAdjustmentByAccount={lastAdjustmentByAccount}

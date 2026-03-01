@@ -14,6 +14,8 @@ interface DialogProps {
   onOpenChange: (open: boolean) => void;
   title: string;
   description?: string;
+  /** Optional custom header (replaces title/description when provided) */
+  header?: React.ReactNode;
   children: React.ReactNode;
   /** Extra classes on the panel itself */
   className?: string;
@@ -33,6 +35,7 @@ export function Dialog({
   onOpenChange,
   title,
   description,
+  header,
   children,
   className,
   size = 'lg',
@@ -76,16 +79,18 @@ export function Dialog({
         >
           {/* Header */}
           <div className="flex items-start justify-between mb-7">
-            <div>
-              <RadixDialog.Title className="text-base font-semibold text-white/90 tracking-tight">
-                {title}
-              </RadixDialog.Title>
-              {description && (
-                <RadixDialog.Description className="text-sm text-neu-muted mt-1">
-                  {description}
-                </RadixDialog.Description>
-              )}
-            </div>
+            {header ?? (
+              <div>
+                <RadixDialog.Title className="text-base font-semibold text-white/90 tracking-tight">
+                  {title}
+                </RadixDialog.Title>
+                {description && (
+                  <RadixDialog.Description className="text-sm text-neu-muted mt-1">
+                    {description}
+                  </RadixDialog.Description>
+                )}
+              </div>
+            )}
             <RadixDialog.Close
               className="
                 flex items-center justify-center w-8 h-8 rounded-full

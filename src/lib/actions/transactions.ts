@@ -6,6 +6,7 @@ import { transactionRepository } from '@/lib/repositories/transaction-repository
 import { accountRepository } from '@/lib/repositories/account-repository';
 import { createTransactionSchema, updateTransactionSchema } from '@/lib/validations/transaction-schema';
 import { createClient } from '@/lib/supabase/server';
+import { convertToBase } from '@/lib/utils/currency';
 import type { Database } from '@/lib/types/database.types';
 import type { TransactionWithRelations } from '@/lib/repositories/transaction-repository';
 
@@ -20,6 +21,26 @@ async function getCurrentUser() {
   return user;
 }
 
+async function getCurrencyRateMap(userId: string): Promise<Map<string, number>> {
+  const supabase = await createClient();
+  type CurrencyRow = { code: string; exchange_rate_to_preferred: number | null };
+  const { data: currencies, error } = await (supabase as any)
+    .from('currencies')
+    .select('code, exchange_rate_to_preferred')
+    .eq('user_id', userId);
+  if (error) throw error;
+  const map = new Map<string, number>();
+  for (const c of (currencies ?? []) as CurrencyRow[]) {
+    map.set(c.code, c.exchange_rate_to_preferred === null ? 1 : c.exchange_rate_to_preferred);
+  }
+  return map;
+}
+
+export type TransferInfo = {
+  fromAccount: { id: string; name: string };
+  toAccount: { id: string; name: string };
+};
+
 export async function getTransactions(filters?: {
   startDate?: string;
   endDate?: string;
@@ -29,7 +50,14 @@ export async function getTransactions(filters?: {
   status?: Database['public']['Enums']['transaction_status'];
   page?: number;
   limit?: number;
-}): Promise<ActionResult<{ data: TransactionWithRelations[]; count: number; totalPages: number }>> {
+}): Promise<
+  ActionResult<{
+    data: TransactionWithRelations[];
+    count: number;
+    totalPages: number;
+    transferInfo: Record<string, TransferInfo>;
+  }>
+> {
   try {
     const user = await getCurrentUser();
     if (!user) {
@@ -46,11 +74,16 @@ export async function getTransactions(filters?: {
       offset,
     });
 
+    const transferIds = Array.from(new Set((result.data ?? []).map((t) => t.transfer_id).filter(Boolean) as string[]));
+    const transferMap = await transactionRepository.getTransfersWithAccounts(user.id, transferIds);
+    const transferInfo = Object.fromEntries(transferMap);
+
     return {
       success: true,
       data: {
         ...result,
         totalPages: Math.ceil(result.count / limit),
+        transferInfo,
       },
     };
   } catch (error) {
@@ -87,9 +120,52 @@ export async function createTransaction(data: unknown): Promise<ActionResult<Tra
 
     const validated = createTransactionSchema.parse(data);
 
-    // Create transaction
+    // Transfer: create both debit and credit transactions atomically
+    if (validated.kind === 'TRANSFER' && validated.destination_account_id) {
+      const fromAccount = await accountRepository.getById(validated.account_id, user.id);
+      const toAccount = await accountRepository.getById(validated.destination_account_id, user.id);
+
+      if (!fromAccount || !toAccount) {
+        return { success: false, error: 'Cuenta de origen o destino no encontrada' };
+      }
+
+      const amountInSource = Math.abs(validated.signed_amount);
+      const sourceCurrency = fromAccount.currency_code;
+      const destCurrency = toAccount.currency_code;
+
+      const rateByCode = await getCurrencyRateMap(user.id);
+      const amountInDest =
+        sourceCurrency === destCurrency
+          ? amountInSource
+          : convertToBase(amountInSource, sourceCurrency, destCurrency, rateByCode);
+
+      const occurredAt =
+        typeof validated.occurred_at === 'string'
+          ? validated.occurred_at
+          : new Date(validated.occurred_at).toISOString().replace('T', ' ').slice(0, 19) + ':00';
+
+      const { debitTx } = await transactionRepository.createTransferWithTransactions({
+        userId: user.id,
+        fromAccountId: validated.account_id,
+        toAccountId: validated.destination_account_id,
+        amountInSourceCurrency: amountInSource,
+        amountInDestCurrency: amountInDest,
+        sourceCurrencyCode: sourceCurrency,
+        description: validated.description ?? null,
+        occurredAt,
+        status: validated.status ?? 'POSTED',
+      });
+
+      revalidatePath('/dashboard');
+      revalidatePath('/transactions');
+
+      return { success: true, data: debitTx };
+    }
+
+    // Normal transaction: single insert
+    const { destination_account_id: _, ...rest } = validated;
     const transaction = await transactionRepository.create({
-      ...validated,
+      ...rest,
       user_id: user.id,
     });
 

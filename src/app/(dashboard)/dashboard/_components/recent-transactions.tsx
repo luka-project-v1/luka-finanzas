@@ -154,6 +154,7 @@ export async function RecentTransactions() {
   ]);
 
   const allTransactions = result.success ? result.data.data : [];
+  const transferInfo = result.success ? (result.data.transferInfo ?? {}) : {};
   const accounts = accountsResult.success ? accountsResult.data : [];
   const accountIds = accounts.map((a) => a.id);
 
@@ -209,7 +210,17 @@ export async function RecentTransactions() {
           </div>
 
           {/* Rows */}
-          {transactions.map((tx, idx) => (
+          {transactions.map((tx) => {
+            const info = tx.transfer_id ? transferInfo[tx.transfer_id] : null;
+            const signed = Number(tx.signed_amount ?? 0);
+            const transferLabel =
+              info && tx.kind === 'TRANSFER'
+                ? signed < 0
+                  ? `Hacia: ${info.toAccount.name}`
+                  : `Desde: ${info.fromAccount.name}`
+                : null;
+
+            return (
             <div
               key={tx.id}
               className={cn(
@@ -225,7 +236,7 @@ export async function RecentTransactions() {
                 <KindIcon kind={tx.kind} />
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-white/80 truncate">
-                    {tx.description}
+                    {transferLabel ?? tx.description ?? '—'}
                   </p>
                   <p className="text-xs text-neu-muted truncate">
                     {tx.categories?.name ?? (KIND_LABELS[tx.kind] ?? tx.kind)}
@@ -253,7 +264,8 @@ export async function RecentTransactions() {
                 <Amount transaction={tx} />
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </section>

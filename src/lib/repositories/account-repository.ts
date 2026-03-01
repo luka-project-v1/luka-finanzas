@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import Decimal from 'decimal.js';
 import type { Database } from '@/lib/types/database.types';
 
 type Account = Database['public']['Tables']['accounts']['Row'];
@@ -186,10 +187,13 @@ export const accountRepository = {
       if (laterError) throw laterError;
 
       const laterSum = (laterData || []).reduce(
-        (sum, t) => sum + Number(t.signed_amount),
-        0
+        (sum, t) => sum.plus(t.signed_amount ?? 0),
+        new Decimal(0)
       );
-      return Number(lastAdjustment.signed_amount) + laterSum;
+      return new Decimal(lastAdjustment.signed_amount ?? 0)
+        .plus(laterSum)
+        .toDecimalPlaces(2)
+        .toNumber();
     }
 
     // No adjustment found: sum all POSTED transactions
@@ -201,7 +205,10 @@ export const accountRepository = {
 
     if (error) throw error;
 
-    return (data || []).reduce((sum, t) => sum + Number(t.signed_amount), 0);
+    return (data || [])
+      .reduce((sum, t) => sum.plus(t.signed_amount ?? 0), new Decimal(0))
+      .toDecimalPlaces(2)
+      .toNumber();
   },
 
   // Get account type by ID

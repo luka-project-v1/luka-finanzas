@@ -54,10 +54,11 @@ export function convertCurrency(
  *   USD → 1      (1 USD = 1 USD)
  *   COP → 4200   (1 USD = 4200 COP)
  *
- * General formula: amount × (toRate / fromRate)
- *   - COP → USD: 4_200_000 × (1 / 4200)  = 1_000     (divide by COP rate)
- *   - USD → COP: 1_000     × (4200 / 1)  = 4_200_000 (multiply by COP rate)
+ * Formula: amount × (rateDest / rateOrigin)
+ *   - COP → USD: 1_000_000 × (1 / 3761) ≈ 265.89 USD
+ *   - USD → COP: 1_000    × (4200 / 1) = 4_200_000 COP
  *
+ * Uses Decimal.js for full precision and to avoid floating-point errors.
  * Returns the original amount when both codes are the same.
  */
 export function convertToBase(
@@ -68,14 +69,15 @@ export function convertToBase(
 ): number {
   if (fromCurrencyCode === toCurrencyCode) return amount;
 
-  const fromRate = rateByCode.get(fromCurrencyCode) ?? 1;
-  const toRate = rateByCode.get(toCurrencyCode) ?? 1;
+  const rateOrigin = rateByCode.get(fromCurrencyCode) ?? 1;
+  const rateDest = rateByCode.get(toCurrencyCode) ?? 1;
 
-  if (fromRate === 0) return 0;
+  if (rateOrigin === 0) return 0;
 
+  // amount × (rateDest / rateOrigin) — e.g. COP→USD: monto × (1/3761)
   return new Decimal(amount)
-    .times(toRate)
-    .dividedBy(fromRate)
+    .times(rateDest)
+    .dividedBy(rateOrigin)
     .toDecimalPlaces(2)
     .toNumber();
 }

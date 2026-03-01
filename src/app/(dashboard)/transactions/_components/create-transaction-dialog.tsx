@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Loader2, TrendingUp, TrendingDown } from 'lucide-react';
+import { Loader2, TrendingUp, TrendingDown, ArrowLeftRight, ArrowRight, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Dialog } from '@/components/ui/dialog';
 import { FieldLabel, FieldError, Input, Select } from '@/components/ui/form-fields';
@@ -16,23 +16,40 @@ import type { Database } from '@/lib/types/database.types';
 
 type Category = Database['public']['Tables']['categories']['Row'];
 
+type TransactionMode = 'expense' | 'income' | 'transfer';
+
 // ─── Form schema ──────────────────────────────────────────────────────────
-// `type` (income/expense) + `amount` (positive) → `signed_amount` at submit
-const formSchema = z.object({
-  type: z.enum(['income', 'expense']),
-  amount: z
-    .string()
-    .min(1, 'El monto es obligatorio')
-    .refine((v) => !isNaN(parseFloat(v)) && parseFloat(v) > 0, {
-      message: 'El monto debe ser un número positivo',
-    }),
-  account_id: z.string().min(1, 'Por favor selecciona una cuenta'),
-  description: z.string().max(500).optional(),
-  category_id: z.string().optional(),
-  occurred_at: z.string().min(1, 'La fecha y hora son obligatorias'),
-  kind: z.enum(['NORMAL', 'TRANSFER', 'ADJUSTMENT', 'FEE', 'INTEREST']),
-  status: z.enum(['PENDING', 'POSTED', 'VOID']),
-});
+const formSchema = z
+  .object({
+    type: z.enum(['income', 'expense']),
+    amount: z
+      .string()
+      .min(1, 'El monto es obligatorio')
+      .refine((v) => !isNaN(parseFloat(v)) && parseFloat(v) > 0, {
+        message: 'El monto debe ser un número positivo',
+      }),
+    account_id: z.string().min(1, 'Por favor selecciona una cuenta'),
+    destination_account_id: z.string().optional(),
+    description: z.string().max(500).optional(),
+    category_id: z.string().optional(),
+    occurred_at: z.string().min(1, 'La fecha y hora son obligatorias'),
+    kind: z.enum(['NORMAL', 'TRANSFER', 'ADJUSTMENT', 'FEE', 'INTEREST']),
+    status: z.enum(['PENDING', 'POSTED', 'VOID']),
+  })
+  .refine(
+    (data) => {
+      if (data.kind === 'TRANSFER') {
+        if (!data.destination_account_id) return false;
+        if (data.destination_account_id === data.account_id) return false;
+        return true;
+      }
+      return true;
+    },
+    {
+      message: 'Selecciona una cuenta de destino diferente a la de origen',
+      path: ['destination_account_id'],
+    }
+  );
 
 type FormValues = z.infer<typeof formSchema>;
 
@@ -66,6 +83,7 @@ export function CreateTransactionDialog({
       type: 'expense',
       amount: '',
       account_id: '',
+      destination_account_id: '',
       description: '',
       category_id: '',
       occurred_at: defaultOccurredAt,
@@ -85,8 +103,31 @@ export function CreateTransactionDialog({
   } = form;
 
   const selectedType = watch('type');
+  const selectedAccountId = watch('account_id');
+
+  // Mode: expense | income | transfer (Traspaso)
+  const [mode, setMode] = useState<TransactionMode>('expense');
+  const isTransfer = mode === 'transfer';
+
+  // Sync form kind with mode
+  useEffect(() => {
+    setValue('kind', isTransfer ? 'TRANSFER' : 'NORMAL');
+    if (!isTransfer) setValue('destination_account_id', '');
+  }, [isTransfer, setValue]);
+
+  // Reset mode when dialog opens
+  useEffect(() => {
+    if (open) setMode('expense');
+  }, [open]);
+
+  function exitTransferMode() {
+    setMode('expense');
+    setValue('kind', 'NORMAL');
+    setValue('destination_account_id', '');
+  }
 
   function handleClose() {
+    setMode('expense');
     reset();
     setServerError(null);
     onOpenChange(false);
@@ -96,33 +137,45 @@ export function CreateTransactionDialog({
     setServerError(null);
 
     const rawAmount = parseFloat(values.amount);
-    // Core rule: income → positive signed_amount, expense → negative
-    const signedAmount = values.type === 'income' ? rawAmount : -rawAmount;
-
     // Keep the local wall-clock time exactly as the user entered it.
-    // datetime-local gives "YYYY-MM-DDTHH:mm"; we normalise to "YYYY-MM-DD HH:mm:ss"
-    // without any timezone conversion so the stored value matches what the user sees.
     const occurred_at_local = values.occurred_at.replace('T', ' ') + ':00';
 
-    const payload: CreateTransactionInput = {
-      account_id: values.account_id,
-      signed_amount: signedAmount,
-      description: values.description || null,
-      category_id: values.category_id || null,
-      occurred_at: occurred_at_local,
-      kind: values.kind,
-      status: values.status,
-      source: 'MANUAL',
-    };
+    let payload: CreateTransactionInput;
+
+    if (isTransfer && values.destination_account_id) {
+      // Transfer: server creates both debit and credit transactions
+      payload = {
+        account_id: values.account_id,
+        destination_account_id: values.destination_account_id,
+        signed_amount: rawAmount, // positive amount being transferred
+        description: values.description || null,
+        category_id: null,
+        occurred_at: occurred_at_local,
+        kind: 'TRANSFER',
+        status: values.status,
+        source: 'MANUAL',
+      };
+    } else {
+      const signedAmount = mode === 'income' ? rawAmount : -rawAmount;
+      payload = {
+        account_id: values.account_id,
+        signed_amount: signedAmount,
+        description: values.description || null,
+        category_id: values.category_id || null,
+        occurred_at: occurred_at_local,
+        kind: values.kind,
+        status: values.status,
+        source: 'MANUAL',
+      };
+    }
 
     const result = await createTransaction(payload);
 
-    // Debug: log full response
-    console.log('Action Response:', result);
-
     if (result.success) {
       reset();
-      toast.success('Transacción creada correctamente');
+      toast.success(
+        isTransfer ? 'Traspaso realizado correctamente' : 'Transacción creada correctamente'
+      );
       onSuccess();
       handleClose();
     } else {
@@ -131,7 +184,7 @@ export function CreateTransactionDialog({
       if (details?.issues?.length) {
         for (const issue of details.issues) {
           const field = issue.path[0];
-          if (typeof field === 'string' && ['account_id', 'signed_amount', 'description', 'category_id', 'occurred_at', 'kind', 'status'].includes(field)) {
+          if (typeof field === 'string' && ['account_id', 'destination_account_id', 'signed_amount', 'description', 'category_id', 'occurred_at', 'kind', 'status'].includes(field)) {
             const formField = field === 'signed_amount' ? 'amount' : field;
             setError(formField as keyof FormValues, { type: 'server', message: issue.message });
           }
@@ -144,6 +197,7 @@ export function CreateTransactionDialog({
   }
 
   const activeAccounts = accounts.filter((a) => a.status === 'ACTIVE');
+  const destinationAccountOptions = activeAccounts.filter((a) => a.id !== selectedAccountId);
 
   return (
     <Dialog
@@ -151,96 +205,156 @@ export function CreateTransactionDialog({
       onOpenChange={handleClose}
       title="Nueva Transacción"
       description="Registra un ingreso o gasto."
+      header={
+        isTransfer ? (
+          <div className="flex items-center justify-between w-full">
+            <div className="flex items-center gap-2">
+              <ArrowLeftRight className="w-5 h-5 text-luka-info shrink-0" strokeWidth={2} />
+              <span className="text-base font-semibold text-white/90 tracking-tight">Nuevo Traspaso</span>
+            </div>
+            <button
+              type="button"
+              onClick={exitTransferMode}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-[0.75rem] text-xs text-neu-muted hover:text-white/70 border border-neu bg-neu-raised shadow-soft-out transition-all duration-150"
+            >
+              <X className="w-3.5 h-3.5" />
+              Cancelar
+            </button>
+          </div>
+        ) : undefined
+      }
       size="lg"
     >
       <form onSubmit={handleSubmit(onSubmit)} noValidate>
-        {/* ── Income / Expense toggle ── */}
-        <div className="mb-6">
-          <FieldLabel required>Tipo de transacción</FieldLabel>
-          <div className="grid grid-cols-2 gap-3">
-            {/* Income */}
+        {/* ── 3-tab selector: Gasto | Ingreso | Traspaso ── */}
+        <div
+          className={cn(
+            'mb-6 transition-all duration-300 ease-out',
+            isTransfer ? 'opacity-0 h-0 overflow-hidden mb-0' : 'opacity-100',
+          )}
+        >
+          <FieldLabel required>Tipo</FieldLabel>
+          <div className="grid grid-cols-3 gap-2">
             <button
               type="button"
-              onClick={() => setValue('type', 'income')}
+              onClick={() => { setMode('expense'); setValue('type', 'expense'); }}
               className={cn(
-                'flex items-center justify-center gap-2.5',
-                'rounded-[1rem] px-4 py-3',
+                'flex items-center justify-center gap-2',
+                'rounded-[1rem] px-3 py-2.5',
                 'text-sm font-semibold border transition-all duration-150',
-                selectedType === 'income'
-                  ? [
-                      'bg-luka-income/15 border-luka-income/30 text-luka-income',
-                      'shadow-[inset_3px_3px_7px_rgba(0,0,0,0.4),inset_-2px_-2px_5px_rgba(74,222,128,0.08)]',
-                    ]
+                mode === 'expense'
+                  ? 'bg-luka-expense/15 border-luka-expense/30 text-luka-expense shadow-soft-in'
                   : 'bg-neu-raised border-neu text-white/40 shadow-soft-out hover:text-white/60',
               )}
             >
-              <TrendingUp className="w-4 h-4" strokeWidth={2} />
+              <TrendingDown className="w-3.5 h-3.5" strokeWidth={2} />
+              Gasto
+            </button>
+            <button
+              type="button"
+              onClick={() => { setMode('income'); setValue('type', 'income'); }}
+              className={cn(
+                'flex items-center justify-center gap-2',
+                'rounded-[1rem] px-3 py-2.5',
+                'text-sm font-semibold border transition-all duration-150',
+                mode === 'income'
+                  ? 'bg-luka-income/15 border-luka-income/30 text-luka-income shadow-soft-in'
+                  : 'bg-neu-raised border-neu text-white/40 shadow-soft-out hover:text-white/60',
+              )}
+            >
+              <TrendingUp className="w-3.5 h-3.5" strokeWidth={2} />
               Ingreso
             </button>
-
-            {/* Gasto */}
             <button
               type="button"
-              onClick={() => setValue('type', 'expense')}
+              onClick={() => setMode('transfer')}
               className={cn(
-                'flex items-center justify-center gap-2.5',
-                'rounded-[1rem] px-4 py-3',
+                'flex items-center justify-center gap-2',
+                'rounded-[1rem] px-3 py-2.5',
                 'text-sm font-semibold border transition-all duration-150',
-                selectedType === 'expense'
-                  ? [
-                      'bg-luka-expense/15 border-luka-expense/30 text-luka-expense',
-                      'shadow-[inset_3px_3px_7px_rgba(0,0,0,0.4),inset_-2px_-2px_5px_rgba(248,113,113,0.08)]',
-                    ]
+                mode === 'transfer'
+                  ? 'bg-luka-info/15 border-luka-info/30 text-luka-info shadow-soft-in'
                   : 'bg-neu-raised border-neu text-white/40 shadow-soft-out hover:text-white/60',
               )}
             >
-              <TrendingDown className="w-4 h-4" strokeWidth={2} />
-              Gasto
+              <ArrowLeftRight className="w-3.5 h-3.5" strokeWidth={2} />
+              Traspaso
             </button>
           </div>
         </div>
 
-        <div className="space-y-5">
+        <div className={cn('space-y-5 transition-opacity duration-300', isTransfer && 'mt-6')}>
           {/* Amount */}
           <div>
             <FieldLabel required>Monto</FieldLabel>
             <div className="relative">
-              {/* Sign indicator */}
               <span className={cn(
                 'absolute left-4 top-1/2 -translate-y-1/2 text-sm font-bold',
-                selectedType === 'income' ? 'text-luka-income' : 'text-luka-expense',
+                isTransfer ? 'text-luka-info' : mode === 'income' ? 'text-luka-income' : 'text-luka-expense',
               )}>
-                {selectedType === 'income' ? '+' : '−'}
+                {isTransfer ? '' : mode === 'income' ? '+' : '−'}
               </span>
               <Input
                 type="number"
                 step="0.01"
                 min="0.01"
                 placeholder="0.00"
-                className="pl-8"
+                className={isTransfer ? 'pl-4' : 'pl-8'}
                 {...register('amount')}
               />
             </div>
             <FieldError message={errors.amount?.message} />
           </div>
 
-          {/* Account */}
-          <div>
-            <FieldLabel required>Cuenta</FieldLabel>
-            <Select {...register('account_id')}>
-              <option value="">Seleccionar cuenta…</option>
-              {activeAccounts.map((acc) => (
-                <option key={acc.id} value={acc.id}>
-                  {acc.name}
-                  {acc.bank_account_details?.bank_name
-                    ? ` — ${acc.bank_account_details.bank_name}`
-                    : ''}
-                  {' '}({acc.currency_code})
-                </option>
-              ))}
-            </Select>
-            <FieldError message={errors.account_id?.message} />
-          </div>
+          {/* Account(s): single selector or Origen → Destino layout */}
+          {isTransfer ? (
+            <div className="flex items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <FieldLabel required>Origen</FieldLabel>
+                <Select {...register('account_id')}>
+                  <option value="">Seleccionar…</option>
+                  {activeAccounts.map((acc) => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.name} ({acc.currency_code})
+                    </option>
+                  ))}
+                </Select>
+                <FieldError message={errors.account_id?.message} />
+              </div>
+              <div className="flex items-center justify-center pt-6 shrink-0">
+                <div className="flex items-center justify-center w-10 h-10 rounded-full bg-luka-info/10 border border-luka-info/20 shadow-soft-out">
+                  <ArrowRight className="w-5 h-5 text-luka-info" strokeWidth={2} />
+                </div>
+              </div>
+              <div className="flex-1 min-w-0">
+                <FieldLabel required>Destino</FieldLabel>
+                <Select {...register('destination_account_id')}>
+                  <option value="">Seleccionar…</option>
+                  {destinationAccountOptions.map((acc) => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.name} ({acc.currency_code})
+                    </option>
+                  ))}
+                </Select>
+                <FieldError message={errors.destination_account_id?.message} />
+              </div>
+            </div>
+          ) : (
+            <div>
+              <FieldLabel required>Cuenta</FieldLabel>
+              <Select {...register('account_id')}>
+                <option value="">Seleccionar cuenta…</option>
+                {activeAccounts.map((acc) => (
+                  <option key={acc.id} value={acc.id}>
+                    {acc.name}
+                    {acc.bank_account_details?.bank_name ? ` — ${acc.bank_account_details.bank_name}` : ''}
+                    {' '}({acc.currency_code})
+                  </option>
+                ))}
+              </Select>
+              <FieldError message={errors.account_id?.message} />
+            </div>
+          )}
 
           {/* Description */}
           <div>
@@ -253,20 +367,22 @@ export function CreateTransactionDialog({
             <FieldError message={errors.description?.message} />
           </div>
 
-          {/* Category + Date side by side */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <FieldLabel>Categoría</FieldLabel>
-              <Select {...register('category_id')}>
-                <option value="">Sin categoría</option>
-                {categories.map((cat) => (
-                  <option key={cat.id} value={cat.id}>
-                    {cat.name}
-                  </option>
-                ))}
-              </Select>
-              <FieldError message={errors.category_id?.message} />
-            </div>
+          {/* Category + Date side by side (Category hidden for TRANSFER) */}
+          <div className={cn('grid gap-4', isTransfer ? 'grid-cols-1' : 'grid-cols-2')}>
+            {!isTransfer && (
+              <div>
+                <FieldLabel>Categoría</FieldLabel>
+                <Select {...register('category_id')}>
+                  <option value="">Sin categoría</option>
+                  {categories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.name}
+                    </option>
+                  ))}
+                </Select>
+                <FieldError message={errors.category_id?.message} />
+              </div>
+            )}
             <div>
               <FieldLabel required>Fecha y hora</FieldLabel>
               <Input type="datetime-local" {...register('occurred_at')} />
@@ -274,18 +390,19 @@ export function CreateTransactionDialog({
             </div>
           </div>
 
-          {/* Kind + Status side by side */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <FieldLabel>Tipo</FieldLabel>
-              <Select {...register('kind')}>
-                <option value="NORMAL">Normal</option>
-                <option value="FEE">Comisión</option>
-                <option value="INTEREST">Interés</option>
-                <option value="ADJUSTMENT">Ajuste</option>
-                <option value="TRANSFER">Transferencia</option>
-              </Select>
-            </div>
+          {/* Kind + Status (Kind hidden for Traspaso) */}
+          <div className={cn('grid gap-4', isTransfer ? 'grid-cols-1' : 'grid-cols-2')}>
+            {!isTransfer && (
+              <div>
+                <FieldLabel>Tipo</FieldLabel>
+                <Select {...register('kind')}>
+                  <option value="NORMAL">Normal</option>
+                  <option value="FEE">Comisión</option>
+                  <option value="INTEREST">Interés</option>
+                  <option value="ADJUSTMENT">Ajuste</option>
+                </Select>
+              </div>
+            )}
             <div>
               <FieldLabel>Estado</FieldLabel>
               <Select {...register('status')}>
@@ -300,16 +417,18 @@ export function CreateTransactionDialog({
         {/* ── Signed amount preview ── */}
         {watch('amount') && parseFloat(watch('amount')) > 0 && (
           <div className={cn(
-            'mt-5 px-4 py-3 rounded-[0.75rem] border text-sm font-semibold',
-            selectedType === 'income'
-              ? 'bg-luka-income/8 border-luka-income/20 text-luka-income'
-              : 'bg-luka-expense/8 border-luka-expense/20 text-luka-expense',
+            'mt-5 px-4 py-3 rounded-[0.75rem] border text-sm font-semibold shadow-soft-out',
+            isTransfer
+              ? 'bg-luka-info/8 border-luka-info/20 text-luka-info'
+              : mode === 'income'
+                ? 'bg-luka-income/8 border-luka-income/20 text-luka-income'
+                : 'bg-luka-expense/8 border-luka-expense/20 text-luka-expense',
           )}>
-            El monto se guardará como&nbsp;
-            <span className="font-mono">
-              {selectedType === 'income' ? '+' : '−'}
-              {parseFloat(watch('amount') || '0').toFixed(2)}
-            </span>
+            {isTransfer ? (
+              <>Se traspasarán <span className="font-mono">{parseFloat(watch('amount') || '0').toFixed(2)}</span> de origen a destino</>
+            ) : (
+              <>El monto se guardará como <span className="font-mono">{mode === 'income' ? '+' : '−'}{parseFloat(watch('amount') || '0').toFixed(2)}</span></>
+            )}
           </div>
         )}
 
@@ -337,6 +456,8 @@ export function CreateTransactionDialog({
           >
             {isSubmitting ? (
               <Loader2 className="w-4 h-4 animate-spin" />
+            ) : isTransfer ? (
+              'Realizar Traspaso'
             ) : (
               'Guardar Transacción'
             )}
