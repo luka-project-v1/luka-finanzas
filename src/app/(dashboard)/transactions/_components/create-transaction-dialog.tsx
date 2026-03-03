@@ -20,6 +20,9 @@ type Category = Database['public']['Tables']['categories']['Row'];
 
 type TransactionMode = 'expense' | 'income' | 'transfer';
 
+// Stable empty object to avoid useEffect re-running on every render when transferInfo is not passed
+const EMPTY_TRANSFER_INFO: Record<string, TransferInfo> = {};
+
 // ─── Form schema ──────────────────────────────────────────────────────────
 const formSchema = z
   .object({
@@ -34,7 +37,12 @@ const formSchema = z
     destination_account_id: z.string().optional(),
     description: z.string().max(500).optional(),
     category_id: z.string().optional(),
-    occurred_at: z.string().min(1, 'La fecha y hora son obligatorias'),
+    occurred_at: z.coerce
+      .date({ invalid_type_error: 'Formato de fecha inválido' })
+      .transform((d) => {
+        const pad = (n: number) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      }),
     kind: z.enum(['NORMAL', 'TRANSFER', 'ADJUSTMENT', 'FEE', 'INTEREST']),
     status: z.enum(['PENDING', 'POSTED', 'VOID']),
   })
@@ -81,7 +89,7 @@ export function CreateTransactionDialog({
   accounts,
   categories,
   initialData,
-  transferInfo = {},
+  transferInfo = EMPTY_TRANSFER_INFO,
 }: CreateTransactionDialogProps) {
   const [serverError, setServerError] = useState<string | null>(null);
   const isEditMode = !!initialData;
@@ -316,13 +324,9 @@ export function CreateTransactionDialog({
       size="lg"
     >
       <form onSubmit={handleSubmit(onSubmit)} noValidate>
-        {/* ── 3-tab selector: Gasto | Ingreso | Traspaso ── */}
-        <div
-          className={cn(
-            'mb-6 transition-all duration-300 ease-out',
-            isTransfer ? 'opacity-0 h-0 overflow-hidden mb-0' : 'opacity-100',
-          )}
-        >
+        {/* ── 3-tab selector: Gasto | Ingreso | Traspaso (hidden in Transfer mode) ── */}
+        {!isTransfer && (
+        <div className="mb-6 transition-all duration-300 ease-out">
           <FieldLabel required>Tipo</FieldLabel>
           <div className="grid grid-cols-3 gap-2">
             <button
@@ -362,16 +366,15 @@ export function CreateTransactionDialog({
                 'flex items-center justify-center gap-2',
                 'rounded-[1rem] px-3 py-2.5',
                 'text-sm font-semibold border transition-all duration-150',
-                mode === 'transfer'
-                  ? 'bg-luka-info/15 border-luka-info/30 text-luka-info shadow-soft-in'
-                  : 'bg-neu-raised border-neu text-white/40 shadow-soft-out hover:text-white/60',
+                'bg-neu-raised border-neu text-white/40 shadow-soft-out hover:text-white/60',
               )}
             >
               <ArrowLeftRight className="w-3.5 h-3.5" strokeWidth={2} />
               Traspaso
             </button>
-          </div>
         </div>
+        </div>
+        )}
 
         <div className={cn('space-y-5 transition-opacity duration-300', isTransfer && 'mt-6')}>
           {/* Amount */}

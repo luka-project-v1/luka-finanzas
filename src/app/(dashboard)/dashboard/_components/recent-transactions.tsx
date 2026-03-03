@@ -221,8 +221,9 @@ export async function RecentTransactions() {
                 : null;
 
             return (
-            <div
+            <Link
               key={tx.id}
+              href={`/transactions?transactionId=${tx.id}`}
               className={cn(
                 'group flex sm:grid sm:grid-cols-[1fr_160px_120px_100px_100px]',
                 'items-center gap-4 px-6 py-4',
@@ -263,7 +264,7 @@ export async function RecentTransactions() {
               <div className="ml-auto sm:ml-0 text-right">
                 <Amount transaction={tx} />
               </div>
-            </div>
+            </Link>
             );
           })}
         </div>

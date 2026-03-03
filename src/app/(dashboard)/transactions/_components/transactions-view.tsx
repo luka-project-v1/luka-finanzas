@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useTransition, useCallback, useEffect, useRef } from 'react';
+import { useState, useTransition, useCallback, useEffect, useRef, Suspense } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Plus,
   ArrowUpRight,
@@ -30,6 +31,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { CreateTransactionDialog } from './create-transaction-dialog';
+import { TransactionDetailSheet } from './transaction-detail-sheet';
 import { toast } from 'sonner';
 import type { TransactionWithRelations } from '@/lib/repositories/transaction-repository';
 import type { AccountWithDetails } from '@/lib/repositories/account-repository';
@@ -237,11 +239,13 @@ function FilterBar({ filters, accounts, categories, isPending, onChange, onClear
 function TransactionRowActions({
   tx,
   isPending,
+  isMarkingAsPaid,
   onMarkAsPaid,
   onEdit,
 }: {
   tx: TransactionWithRelations;
   isPending: boolean;
+  isMarkingAsPaid: boolean;
   onMarkAsPaid: () => void;
   onEdit: () => void;
 }) {
@@ -268,10 +272,15 @@ function TransactionRowActions({
             <button
               type="button"
               onClick={onMarkAsPaid}
-              className="flex items-center justify-center w-8 h-8 rounded-full text-[#D97757] hover:bg-[#D97757]/15 transition-colors duration-150"
+              disabled={isMarkingAsPaid}
+              className="flex items-center justify-center w-8 h-8 rounded-full text-[#D97757] hover:bg-[#D97757]/15 transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
               aria-label="Marcar como pagado"
             >
-              <CheckCircle className="w-4 h-4" strokeWidth={2} />
+              {isMarkingAsPaid ? (
+                <div className="w-4 h-4 border-2 border-[#D97757]/30 border-t-[#D97757] rounded-full animate-spin" />
+              ) : (
+                <CheckCircle className="w-4 h-4" strokeWidth={2} />
+              )}
             </button>
           </TooltipTrigger>
           <TooltipContent side="left">Marcar como pagado</TooltipContent>
@@ -325,21 +334,56 @@ function HistoricalBadge() {
   );
 }
 
+// ─── Transfer grouping helper ──────────────────────────────────────────────
+/** When account filter is empty: group transfers into single rows. When account filter is active: no grouping. */
+function getDisplayRows(
+  transactions: TransactionWithRelations[],
+  transferInfo: Record<string, TransferInfo>,
+  accountFilterId: string
+): TransactionWithRelations[] {
+  if (accountFilterId) {
+    // Filtered by account: show each leg as-is (backend already returns only matching legs)
+    return transactions;
+  }
+  // No account filter: group transfers, show one row per transfer (use debit leg as representative)
+  const seen = new Set<string>();
+  const result: TransactionWithRelations[] = [];
+  for (const tx of transactions) {
+    if (tx.transfer_id && tx.kind === 'TRANSFER') {
+      if (seen.has(tx.transfer_id)) continue;
+      seen.add(tx.transfer_id);
+      // Use debit leg (negative amount) as representative for actions
+      const legs = transactions.filter((t) => t.transfer_id === tx.transfer_id);
+      const debitLeg = legs.find((t) => Number(t.signed_amount ?? 0) < 0) ?? legs[0];
+      result.push(debitLeg);
+    } else {
+      result.push(tx);
+    }
+  }
+  return result;
+}
+
 // ─── Table row ─────────────────────────────────────────────────────────────
 function TransactionRow({
   tx,
   categories,
   lastAdjustmentByAccount,
   transferInfo,
+  markingAsPaidId,
+  accountFilterId,
   onMarkAsPaid,
   onEdit,
+  onRowClick,
 }: {
   tx: TransactionWithRelations;
   categories: Category[];
   lastAdjustmentByAccount: Record<string, { date: string; id: string }>;
   transferInfo: Record<string, TransferInfo>;
+  markingAsPaidId: string | null;
+  accountFilterId: string;
   onMarkAsPaid: (tx: TransactionWithRelations) => void;
   onEdit: (tx: TransactionWithRelations) => void;
+  onRowClick?: (tx: TransactionWithRelations) => void;
 }) {
   const signed = Number(tx.signed_amount ?? 0);
   const isIncome = signed > 0;
@@ -348,12 +392,14 @@ function TransactionRow({
   const account = tx.accounts as any;
 
   const info = tx.transfer_id ? transferInfo[tx.transfer_id] : null;
-  const transferLabel =
-    info && tx.kind === 'TRANSFER'
-      ? signed < 0
+  const isGroupedTransfer = !accountFilterId && tx.transfer_id && tx.kind === 'TRANSFER';
+  const transferLabel = info && tx.kind === 'TRANSFER'
+    ? isGroupedTransfer
+      ? `${info.fromAccount.name} → ${info.toAccount.name}`
+      : signed < 0
         ? `Hacia: ${info.toAccount.name}`
         : `Desde: ${info.fromAccount.name}`
-      : null;
+    : null;
 
   // A row is "historical" (does not affect the current balance) when:
   //  - It is an ADJUSTMENT and it is NOT the most recent one for its account, OR
@@ -367,8 +413,18 @@ function TransactionRow({
   const isPending = tx.status === 'PENDING';
 
   const rowContent = (
-    <tr className={cn(
-      'group border-b last:border-0',
+    <tr
+      role="button"
+      tabIndex={0}
+      onClick={() => onRowClick?.(tx)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onRowClick?.(tx);
+        }
+      }}
+      className={cn(
+      'group border-b last:border-0 cursor-pointer',
       'hover:bg-[#161616]/60 transition-colors duration-100',
       isHistorical && 'opacity-40 grayscale',
       isPending
@@ -378,7 +434,14 @@ function TransactionRow({
       {/* Category + Description */}
       <td className="px-5 py-4">
         <div className="flex items-center gap-3">
-          {category ? (
+          {isGroupedTransfer ? (
+            <div className={cn(
+              'flex items-center justify-center w-8 h-8 rounded-full shrink-0 shadow-soft-out',
+              'bg-luka-info/10',
+            )}>
+              <ArrowLeftRight className="w-3.5 h-3.5 text-luka-info" strokeWidth={2} />
+            </div>
+          ) : category ? (
             <div
               className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 shadow-soft-out"
               style={{ backgroundColor: `${categoryColor(category.name)}22`, color: categoryColor(category.name) }}
@@ -413,7 +476,7 @@ function TransactionRow({
       {/* Account */}
       <td className="hidden md:table-cell px-5 py-4">
         <p className="text-sm text-white/50 truncate max-w-[140px]">
-          {account?.name ?? '—'}
+          {isGroupedTransfer ? '—' : (account?.name ?? '—')}
         </p>
       </td>
 
@@ -441,22 +504,28 @@ function TransactionRow({
           'text-sm font-semibold tabular-nums',
           isHistorical
             ? 'text-white/30 line-through decoration-white/20'
-            : isNeutral
-              ? 'text-white/60'
-              : isIncome
-                ? 'text-luka-income'
-                : 'text-luka-expense',
+            : isGroupedTransfer
+              ? 'text-luka-info'
+              : isNeutral
+                ? 'text-white/60'
+                : isIncome
+                  ? 'text-luka-income'
+                  : 'text-luka-expense',
         )}>
-          {isNeutral ? '' : isIncome ? '+' : '−'}
+          {isGroupedTransfer ? '' : isNeutral ? '' : isIncome ? '+' : '−'}
           {formatCurrency(Math.abs(signed), '$')}
         </span>
       </td>
 
       {/* Actions */}
-      <td className="px-5 py-4 w-14">
+      <td
+        className="px-5 py-4 w-14"
+        onClick={(e) => e.stopPropagation()}
+      >
         <TransactionRowActions
           tx={tx}
           isPending={isPending}
+          isMarkingAsPaid={markingAsPaidId === tx.id}
           onMarkAsPaid={() => onMarkAsPaid(tx)}
           onEdit={() => onEdit(tx)}
         />
@@ -582,6 +651,7 @@ export function TransactionsView({
   categories,
   initialLastAdjustmentByAccount,
 }: TransactionsViewProps) {
+  const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
   const [transactions, setTransactions] = useState(initialTransactions);
@@ -596,6 +666,7 @@ export function TransactionsView({
   const [lastAdjustmentByAccount, setLastAdjustmentByAccount] = useState<
     Record<string, { date: string; id: string }>
   >(initialLastAdjustmentByAccount);
+  const [markingAsPaidId, setMarkingAsPaidId] = useState<string | null>(null);
 
   const fetchPage = useCallback(
     (newFilters: Filters, newPage: number) => {
@@ -652,27 +723,44 @@ export function TransactionsView({
   }
 
   async function handleMarkAsPaid(tx: TransactionWithRelations) {
+    setMarkingAsPaidId(tx.id);
     // Optimistic update
     setTransactions((prev) =>
       prev.map((t) => (t.id === tx.id ? { ...t, status: 'POSTED' as const } : t))
     );
-    const result = await updateTransaction(tx.id, { status: 'POSTED' });
-    if (result.success) {
-      toast.success('Transacción marcada como pagada');
-      refreshAdjustmentDates();
-      fetchPage(filters, page);
-    } else {
-      // Revert optimistic update
+    try {
+      const result = await updateTransaction(tx.id, { status: 'POSTED' });
+      if (result.success) {
+        toast.success('Transacción marcada como pagada');
+        refreshAdjustmentDates();
+        fetchPage(filters, page);
+      } else {
+        // Revert optimistic update
+        setTransactions((prev) =>
+          prev.map((t) => (t.id === tx.id ? { ...t, status: 'PENDING' as const } : t))
+        );
+        toast.error((result as { success: false; error: string }).error);
+      }
+    } catch (err) {
+      // Revert optimistic update on unexpected error
       setTransactions((prev) =>
         prev.map((t) => (t.id === tx.id ? { ...t, status: 'PENDING' as const } : t))
       );
-      toast.error((result as { success: false; error: string }).error);
+      toast.error('Error al actualizar la transacción');
+    } finally {
+      setMarkingAsPaidId(null);
     }
   }
 
   function handleEdit(tx: TransactionWithRelations) {
     setTransactionToEdit(tx);
     setEditDialogOpen(true);
+  }
+
+  function handleRowClick(tx: TransactionWithRelations) {
+    const params = new URLSearchParams(window.location.search);
+    params.set('transactionId', tx.id);
+    router.replace(`/transactions?${params.toString()}`);
   }
 
   return (
@@ -739,15 +827,18 @@ export function TransactionsView({
                 {/* Body */}
                 <TooltipProvider delayDuration={300}>
                   <tbody>
-                    {transactions.map((tx) => (
+                    {getDisplayRows(transactions, transferInfo, filters.accountId).map((tx) => (
                       <TransactionRow
                         key={tx.id}
                         tx={tx}
                         categories={categories}
                         lastAdjustmentByAccount={lastAdjustmentByAccount}
                         transferInfo={transferInfo}
+                        markingAsPaidId={markingAsPaidId}
+                        accountFilterId={filters.accountId}
                         onMarkAsPaid={handleMarkAsPaid}
                         onEdit={handleEdit}
+                        onRowClick={handleRowClick}
                       />
                     ))}
                   </tbody>
@@ -794,6 +885,15 @@ export function TransactionsView({
         initialData={transactionToEdit}
         transferInfo={transferInfo}
       />
+
+      {/* ── Transaction Detail Sheet (URL-driven) ── */}
+      <Suspense fallback={null}>
+        <TransactionDetailSheet
+          accounts={accounts}
+          categories={categories}
+          onSuccess={handleSuccess}
+        />
+      </Suspense>
     </>
   );
 }

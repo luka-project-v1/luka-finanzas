@@ -112,6 +112,83 @@ export async function getTransaction(id: string): Promise<ActionResult<Transacti
   }
 }
 
+/** Extended transfer info with currency codes for conversion display */
+export type TransferDetailInfo = {
+  fromAccount: { id: string; name: string; currencyCode: string };
+  toAccount: { id: string; name: string; currencyCode: string };
+};
+
+export async function getTransactionDetail(id: string): Promise<
+  ActionResult<{
+    transaction: TransactionWithRelations;
+    transferInfo?: TransferDetailInfo;
+    rateByCode: Record<string, number>;
+    preferredCode: string;
+  }>
+> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return { success: false, error: 'No autorizado' };
+    }
+
+    const transaction = await transactionRepository.getById(id, user.id);
+    if (!transaction) {
+      return { success: false, error: 'Transacción no encontrada' };
+    }
+
+    const rateByCode = await getCurrencyRateMap(user.id);
+    const rateRecord: Record<string, number> = Object.fromEntries(rateByCode);
+
+    const supabase = await createClient();
+    type CurrencyRow = { code: string; exchange_rate_to_preferred: number | null };
+    const { data: currencies } = await (supabase as any)
+      .from('currencies')
+      .select('code, exchange_rate_to_preferred')
+      .eq('user_id', user.id);
+
+    const preferredCurrency =
+      (currencies as CurrencyRow[] | null)?.find((c) => c.exchange_rate_to_preferred === 1) ??
+      (currencies as CurrencyRow[] | null)?.find((c) => c.exchange_rate_to_preferred === null) ??
+      (currencies as CurrencyRow[] | null)?.[0];
+    const preferredCode = preferredCurrency?.code ?? 'COP';
+
+    let transferInfo: TransferDetailInfo | undefined;
+    if (transaction.transfer_id) {
+      const transferMap = await transactionRepository.getTransfersWithAccounts(user.id, [transaction.transfer_id]);
+      const info = transferMap.get(transaction.transfer_id);
+      if (info) {
+        const { data: accounts } = await (supabase as any)
+          .from('accounts')
+          .select('id, name, currency_code')
+          .in('id', [info.fromAccount.id, info.toAccount.id]);
+        const accMap = new Map((accounts ?? []).map((a: { id: string; name: string; currency_code: string }) => [a.id, a]));
+        const fromAcc = accMap.get(info.fromAccount.id);
+        const toAcc = accMap.get(info.toAccount.id);
+        if (fromAcc && toAcc) {
+          transferInfo = {
+            fromAccount: { id: fromAcc.id, name: fromAcc.name, currencyCode: fromAcc.currency_code ?? 'COP' },
+            toAccount: { id: toAcc.id, name: toAcc.name, currencyCode: toAcc.currency_code ?? 'COP' },
+          };
+        }
+      }
+    }
+
+    return {
+      success: true,
+      data: {
+        transaction,
+        transferInfo,
+        rateByCode: rateRecord,
+        preferredCode,
+      },
+    };
+  } catch (error) {
+    console.error('Error fetching transaction detail:', error);
+    return { success: false, error: 'Error al obtener el detalle de la transacción' };
+  }
+}
+
 export async function createTransaction(data: unknown): Promise<ActionResult<TransactionWithRelations>> {
   try {
     const user = await getCurrentUser();
