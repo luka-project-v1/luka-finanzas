@@ -124,8 +124,12 @@ function EmptyAccounts() {
 }
 
 // ─── Data component ────────────────────────────────────────────────────────
-export async function AccountsStrip() {
-  const result = await getBankAccounts();
+interface AccountsStripProps {
+  endDate?: string;
+}
+
+export async function AccountsStrip({ endDate }: AccountsStripProps = {}) {
+  const result = await getBankAccounts(endDate);
   const accounts = result.success ? result.data : [];
   const activeAccounts = accounts.filter((a) => a.status === 'ACTIVE');
 

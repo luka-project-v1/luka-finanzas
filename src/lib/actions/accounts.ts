@@ -18,7 +18,7 @@ async function getCurrentUser() {
   return user;
 }
 
-export async function getBankAccounts(): Promise<ActionResult<AccountWithDetails[]>> {
+export async function getBankAccounts(endDate?: string): Promise<ActionResult<AccountWithDetails[]>> {
   try {
     const user = await getCurrentUser();
     if (!user) {
@@ -31,8 +31,16 @@ export async function getBankAccounts(): Promise<ActionResult<AccountWithDetails
     if (!bankAccountType) {
       return { success: true, data: [] };
     }
-    
-    const bankAccounts = accounts.filter(acc => acc.account_type_id === bankAccountType.id);
+
+    // Recalculate balances with endDate
+    const accountsWithBalance = await Promise.all(
+      accounts.map(async (account) => {
+        const balance = await accountRepository.calculateBalance(account.id, endDate);
+        return { ...account, balance };
+      })
+    );
+
+    const bankAccounts = accountsWithBalance.filter(acc => acc.account_type_id === bankAccountType.id);
     return { success: true, data: bankAccounts };
   } catch (error) {
     console.error('Error fetching accounts:', error);
@@ -74,7 +82,7 @@ export async function createBankAccount(data: unknown): Promise<ActionResult<Acc
 
     // Transform data format if needed
     const dataWithCurrency = data as any;
-    
+
     // currency_code should come directly from the enum (USD or COP)
     // If currency_id is provided but currency_code is not, we can't convert
     if (dataWithCurrency.currency_id && !dataWithCurrency.currency_code) {
@@ -88,7 +96,7 @@ export async function createBankAccount(data: unknown): Promise<ActionResult<Acc
     }
 
     const validated = createBankAccountSchema.parse(dataWithCurrency);
-    
+
     // Get BANK_ACCOUNT account type
     const bankAccountType = await accountRepository.getAccountTypeByCode('BANK_ACCOUNT');
     if (!bankAccountType) {
@@ -120,11 +128,11 @@ export async function createBankAccount(data: unknown): Promise<ActionResult<Acc
     return { success: true, data: account };
   } catch (error: any) {
     console.error('Error creating account:', error);
-    
+
     // Handle validation errors
     if (error && 'issues' in error) {
       const zodError = error as any;
-      const errorMessages = zodError.issues?.map((issue: any) => 
+      const errorMessages = zodError.issues?.map((issue: any) =>
         `${issue.path.join('.')}: ${issue.message}`
       ).join(', ') || 'Validation error';
       // Convert issues to plain objects to avoid Client Component serialization issues
@@ -138,17 +146,17 @@ export async function createBankAccount(data: unknown): Promise<ActionResult<Acc
 
     // Handle Supabase RLS/permission errors
     if (error?.code === '42501' || error?.message?.includes('permission denied')) {
-      return { 
-        success: false, 
-        error: 'Permiso denegado. Verifica la configuración de seguridad en Supabase.' 
+      return {
+        success: false,
+        error: 'Permiso denegado. Verifica la configuración de seguridad en Supabase.'
       };
     }
 
     // Handle other Supabase errors
     if (error?.code) {
-      return { 
-        success: false, 
-        error: error.message || `Database error: ${error.code}` 
+      return {
+        success: false,
+        error: error.message || `Database error: ${error.code}`
       };
     }
 
@@ -168,7 +176,7 @@ export async function updateBankAccount(
 
     // Transform data format if needed
     const dataWithCurrency = data as any;
-    
+
     // currency_code should come directly from the enum (USD or COP)
     // If currency_id is provided but currency_code is not, we can't convert
     if (dataWithCurrency.currency_id && !dataWithCurrency.currency_code) {
@@ -190,11 +198,11 @@ export async function updateBankAccount(
     const account = await accountRepository.update(id, user.id, accountUpdates);
 
     // Update bank account details if any detail fields provided
-    if (kind !== undefined || bank_name !== undefined || masked_number !== undefined || 
-        interest_rate_annual !== undefined || monthly_fee !== undefined || overdraft_limit !== undefined) {
+    if (kind !== undefined || bank_name !== undefined || masked_number !== undefined ||
+      interest_rate_annual !== undefined || monthly_fee !== undefined || overdraft_limit !== undefined) {
       const supabase = await createClient();
       const detailsUpdate: any = {};
-      
+
       if (kind !== undefined) detailsUpdate.kind = kind;
       if (bank_name !== undefined) detailsUpdate.bank_name = bank_name;
       if (masked_number !== undefined) detailsUpdate.masked_number = masked_number;
@@ -222,7 +230,7 @@ export async function updateBankAccount(
     return { success: true, data: updatedAccount };
   } catch (error) {
     console.error('Error updating account:', error);
-    
+
     if (error instanceof Error && 'issues' in error) {
       return { success: false, error: 'Error de validación', details: error };
     }
@@ -231,7 +239,7 @@ export async function updateBankAccount(
   }
 }
 
-export async function getTotalBalanceInPreferredCurrency(): Promise<
+export async function getTotalBalanceInPreferredCurrency(endDate?: string): Promise<
   ActionResult<{ total: number; preferredCode: string; preferredSymbol: string }>
 > {
   try {
@@ -242,13 +250,14 @@ export async function getTotalBalanceInPreferredCurrency(): Promise<
 
     const supabase = await createClient();
 
-    // Get currencies with exchange rates
-    const { data: currencies, error: currError } = await supabase
+    type CurrencyRow = { code: string; symbol: string; exchange_rate_to_preferred: number | null };
+    const { data: currenciesRaw, error: currError } = await (supabase as any)
       .from('currencies')
       .select('code, symbol, exchange_rate_to_preferred')
       .eq('user_id', user.id);
 
     if (currError) throw currError;
+    const currencies = (currenciesRaw ?? []) as CurrencyRow[];
 
     const bankAccountType = await accountRepository.getAccountTypeByCode('BANK_ACCOUNT');
     if (!bankAccountType) {
@@ -256,18 +265,27 @@ export async function getTotalBalanceInPreferredCurrency(): Promise<
     }
 
     const accounts = await accountRepository.getAll(user.id);
-    const bankAccounts = accounts.filter((a) => a.account_type_id === bankAccountType.id && a.status === 'ACTIVE');
+
+    // Recalculate balances with endDate
+    const accountsWithBalance = await Promise.all(
+      accounts.map(async (account) => {
+        const balance = await accountRepository.calculateBalance(account.id, endDate);
+        return { ...account, balance };
+      })
+    );
+
+    const bankAccounts = accountsWithBalance.filter((a) => a.account_type_id === bankAccountType.id && a.status === 'ACTIVE');
 
     const preferredCurrency =
-      currencies?.find((c) => c.exchange_rate_to_preferred === 1) ??
-      currencies?.find((c) => c.exchange_rate_to_preferred === null) ??
-      currencies?.[0];
+      currencies.find((c) => c.exchange_rate_to_preferred === 1) ??
+      currencies.find((c) => c.exchange_rate_to_preferred === null) ??
+      currencies[0];
 
     const preferredCode = preferredCurrency?.code ?? 'COP';
     const preferredSymbol = preferredCurrency?.symbol ?? 'COP$';
 
     const rateByCode = new Map<string, number>();
-    for (const c of currencies ?? []) {
+    for (const c of currencies) {
       const rate = c.exchange_rate_to_preferred;
       rateByCode.set(c.code, rate === null ? 1 : rate);
     }

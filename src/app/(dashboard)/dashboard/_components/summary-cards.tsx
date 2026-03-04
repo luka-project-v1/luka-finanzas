@@ -26,15 +26,17 @@ export function SummaryCardsSkeleton() {
 }
 
 // ─── Data component ────────────────────────────────────────────────────────
-export async function SummaryCards() {
-  const now = new Date();
-  const startDate = format(startOfMonth(now), 'yyyy-MM-dd');
-  const endDate = format(endOfMonth(now), 'yyyy-MM-dd');
-  const monthLabel = format(now, 'MMMM yyyy', { locale: es });
+interface SummaryCardsProps {
+  startDate: string;
+  endDate: string;
+  monthLabel: string;
+}
+
+export async function SummaryCards({ startDate, endDate, monthLabel }: SummaryCardsProps) {
 
   const [summaryResult, totalResult] = await Promise.all([
     getTransactionsSummary(startDate, endDate),
-    getTotalBalanceInPreferredCurrency(),
+    getTotalBalanceInPreferredCurrency(endDate),
   ]);
 
   const summary = summaryResult.success
@@ -50,26 +52,26 @@ export async function SummaryCards() {
   const cards = [
     ...(totalBalance
       ? [
-          {
-            label: 'Balance Total',
-            sublabel: `Todas las cuentas en ${totalBalance.preferredCode}`,
-            value: totalBalance.total,
-            symbol: totalBalance.preferredSymbol,
-            icon: Landmark,
-            iconBg: 'bg-luka-accent/10',
-            iconColor: 'text-luka-accent',
-            valueColor:
-              totalBalance.total >= 0 ? 'text-luka-income' : 'text-luka-expense',
-            trend:
-              totalBalance.total >= 0 ? (
-                <ArrowUpRight className="w-3.5 h-3.5 text-luka-income" />
-              ) : (
-                <ArrowDownRight className="w-3.5 h-3.5 text-luka-expense" />
-              ),
-            accentLine:
-              totalBalance.total >= 0 ? 'from-luka-income/30' : 'from-luka-expense/30',
-          },
-        ]
+        {
+          label: 'Balance Total',
+          sublabel: `Todas las cuentas en ${totalBalance.preferredCode}`,
+          value: totalBalance.total,
+          symbol: totalBalance.preferredSymbol,
+          icon: Landmark,
+          iconBg: 'bg-luka-accent/10',
+          iconColor: 'text-luka-accent',
+          valueColor:
+            totalBalance.total >= 0 ? 'text-luka-income' : 'text-luka-expense',
+          trend:
+            totalBalance.total >= 0 ? (
+              <ArrowUpRight className="w-3.5 h-3.5 text-luka-income" />
+            ) : (
+              <ArrowDownRight className="w-3.5 h-3.5 text-luka-expense" />
+            ),
+          accentLine:
+            totalBalance.total >= 0 ? 'from-luka-income/30' : 'from-luka-expense/30',
+        },
+      ]
       : []),
     {
       label: 'Balance Neto',
