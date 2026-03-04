@@ -21,7 +21,7 @@ export type AccountWithDetails = Account & {
 export const accountRepository = {
   async getAll(userId: string): Promise<AccountWithDetails[]> {
     const supabase = await createClient();
-    
+
     const { data, error } = await supabase
       .from('accounts')
       .select(`
@@ -34,21 +34,21 @@ export const accountRepository = {
       .order('created_at', { ascending: false });
 
     if (error) throw error;
-    
+
     // Calculate balance for each account
     const accountsWithBalance = await Promise.all(
       (data || []).map(async (account) => {
-        const balance = await this.calculateBalance(account.id);
+        const balance = await this.calculateBalance(account.id, undefined); // Default getAll doesn't filter
         return { ...account, balance };
       })
     );
-    
+
     return accountsWithBalance as AccountWithDetails[];
   },
 
   async getById(id: string, userId: string): Promise<AccountWithDetails | null> {
     const supabase = await createClient();
-    
+
     const { data, error } = await supabase
       .from('accounts')
       .select(`
@@ -65,8 +65,8 @@ export const accountRepository = {
       if (error.code === 'PGRST116') return null;
       throw error;
     }
-    
-    const balance = await this.calculateBalance(id);
+
+    const balance = await this.calculateBalance(id, undefined); // Default getById doesn't filter
     return { ...data, balance } as AccountWithDetails;
   },
 
@@ -75,7 +75,7 @@ export const accountRepository = {
     details?: BankAccountDetailsInsert | Database['public']['Tables']['credit_card_details']['Insert']
   ): Promise<AccountWithDetails> {
     const supabase = await createClient();
-    
+
     // Create account
     const { data: accountData, error: accountError } = await supabase
       .from('accounts')
@@ -89,36 +89,36 @@ export const accountRepository = {
       .single();
 
     if (accountError) throw accountError;
-    
+
     // Create details if provided
     if (details) {
       const accountType = await this.getAccountType(account.account_type_id);
-      
+
       if (accountType?.code === 'BANK_ACCOUNT' && 'kind' in details) {
         const { error: detailsError } = await supabase
           .from('bank_account_details')
           .insert({ ...details, account_id: accountData.id });
-        
+
         if (detailsError) throw detailsError;
       } else if (accountType?.code === 'CREDIT_CARD' && 'credit_limit' in details) {
         const { error: detailsError } = await supabase
           .from('credit_card_details')
           .insert({ ...details, account_id: accountData.id });
-        
+
         if (detailsError) throw detailsError;
       }
     }
-    
+
     // Fetch complete account with details
     const completeAccount = await this.getById(accountData.id, account.user_id);
     if (!completeAccount) throw new Error('Failed to fetch created account');
-    
+
     return completeAccount;
   },
 
   async update(id: string, userId: string, updates: AccountUpdate): Promise<AccountWithDetails> {
     const supabase = await createClient();
-    
+
     const { data, error } = await supabase
       .from('accounts')
       .update(updates)
@@ -133,18 +133,18 @@ export const accountRepository = {
       .single();
 
     if (error) throw error;
-    
-    const balance = await this.calculateBalance(id);
+
+    const balance = await this.calculateBalance(id, undefined); // Default update doesn't filter
     return { ...data, balance } as AccountWithDetails;
   },
 
   async delete(id: string, userId: string): Promise<void> {
     const supabase = await createClient();
-    
+
     // Delete details first (if any)
     await supabase.from('bank_account_details').delete().eq('account_id', id);
     await supabase.from('credit_card_details').delete().eq('account_id', id);
-    
+
     // Delete account
     const { error } = await supabase
       .from('accounts')
@@ -159,11 +159,12 @@ export const accountRepository = {
   // If a POSTED ADJUSTMENT exists, its signed_amount is the balance checkpoint.
   // Only transactions (non-ADJUSTMENT) occurring AFTER that checkpoint are accumulated.
   // If no ADJUSTMENT exists, all POSTED transactions are summed (legacy behaviour).
-  async calculateBalance(accountId: string): Promise<number> {
+  // If endDate is provided, only transactions up to that date (inclusive) are considered.
+  async calculateBalance(accountId: string, endDate?: string): Promise<number> {
     const supabase = await createClient();
 
-    // Find the most recent POSTED ADJUSTMENT for this account
-    const { data: adjustmentData } = await supabase
+    // Build base query for adjustment to respect the endDate if provided
+    let adjustmentQuery = supabase
       .from('transactions')
       .select('signed_amount, occurred_at')
       .eq('account_id', accountId)
@@ -172,17 +173,28 @@ export const accountRepository = {
       .order('occurred_at', { ascending: false })
       .limit(1);
 
+    if (endDate) {
+      adjustmentQuery = adjustmentQuery.lte('occurred_at', `${endDate} 23:59:59`);
+    }
+
+    const { data: adjustmentData } = await adjustmentQuery;
     const lastAdjustment = adjustmentData?.[0] ?? null;
 
     if (lastAdjustment) {
       // Sum only non-ADJUSTMENT transactions strictly after the checkpoint
-      const { data: laterData, error: laterError } = await supabase
+      let laterQuery = supabase
         .from('transactions')
         .select('signed_amount')
         .eq('account_id', accountId)
         .eq('status', 'POSTED')
         .neq('kind', 'ADJUSTMENT')
         .gt('occurred_at', lastAdjustment.occurred_at);
+
+      if (endDate) {
+        laterQuery = laterQuery.lte('occurred_at', `${endDate} 23:59:59`);
+      }
+
+      const { data: laterData, error: laterError } = await laterQuery;
 
       if (laterError) throw laterError;
 
@@ -197,11 +209,17 @@ export const accountRepository = {
     }
 
     // No adjustment found: sum all POSTED transactions
-    const { data, error } = await supabase
+    let allQuery = supabase
       .from('transactions')
       .select('signed_amount')
       .eq('account_id', accountId)
       .eq('status', 'POSTED');
+
+    if (endDate) {
+      allQuery = allQuery.lte('occurred_at', `${endDate} 23:59:59`);
+    }
+
+    const { data, error } = await allQuery;
 
     if (error) throw error;
 
@@ -214,7 +232,7 @@ export const accountRepository = {
   // Get account type by ID
   async getAccountType(accountTypeId: string): Promise<AccountType | null> {
     const supabase = await createClient();
-    
+
     const { data, error } = await supabase
       .from('account_types')
       .select('*')
@@ -225,14 +243,14 @@ export const accountRepository = {
       if (error.code === 'PGRST116') return null;
       throw error;
     }
-    
+
     return data;
   },
 
   // Get account type by code
   async getAccountTypeByCode(code: string): Promise<AccountType | null> {
     const supabase = await createClient();
-    
+
     const { data, error } = await supabase
       .from('account_types')
       .select('*')
@@ -243,7 +261,7 @@ export const accountRepository = {
       if (error.code === 'PGRST116') return null;
       throw error;
     }
-    
+
     return data;
   },
 };

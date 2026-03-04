@@ -47,27 +47,27 @@ export function RecentTransactionsSkeleton() {
 }
 
 const STATUS_LABELS: Record<string, string> = {
-  POSTED:  'Registrada',
+  POSTED: 'Registrada',
   PENDING: 'Pendiente',
-  VOID:    'Anulada',
+  VOID: 'Anulada',
 };
 
 const KIND_LABELS: Record<string, string> = {
-  INCOME:     'Ingreso',
-  EXPENSE:    'Gasto',
-  TRANSFER:   'Transferencia',
+  INCOME: 'Ingreso',
+  EXPENSE: 'Gasto',
+  TRANSFER: 'Transferencia',
   ADJUSTMENT: 'Ajuste',
-  FEE:        'Comisión',
-  INTEREST:   'Interés',
-  NORMAL:     'Normal',
+  FEE: 'Comisión',
+  INTEREST: 'Interés',
+  NORMAL: 'Normal',
 };
 
 // ─── Status badge ──────────────────────────────────────────────────────────
 function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
-    POSTED:  'bg-luka-income/10 text-luka-income border-luka-income/20',
+    POSTED: 'bg-luka-income/10 text-luka-income border-luka-income/20',
     PENDING: 'bg-luka-warning/10 text-luka-warning border-luka-warning/20',
-    VOID:    'bg-neu-raised text-neu-muted border-neu',
+    VOID: 'bg-neu-raised text-neu-muted border-neu',
   };
   return (
     <span className={cn(
@@ -82,10 +82,10 @@ function StatusBadge({ status }: { status: string }) {
 // ─── Kind icon ────────────────────────────────────────────────────────────
 function KindIcon({ kind }: { kind: string }) {
   const config: Record<string, { icon: React.ElementType; bg: string; color: string }> = {
-    INCOME:     { icon: ArrowUpRight,   bg: 'bg-luka-income/10',   color: 'text-luka-income' },
-    EXPENSE:    { icon: ArrowDownRight, bg: 'bg-luka-expense/10',  color: 'text-luka-expense' },
-    TRANSFER:   { icon: ArrowLeftRight, bg: 'bg-luka-info/10',     color: 'text-luka-info' },
-    ADJUSTMENT: { icon: ArrowLeftRight, bg: 'bg-luka-warning/10',  color: 'text-luka-warning' },
+    INCOME: { icon: ArrowUpRight, bg: 'bg-luka-income/10', color: 'text-luka-income' },
+    EXPENSE: { icon: ArrowDownRight, bg: 'bg-luka-expense/10', color: 'text-luka-expense' },
+    TRANSFER: { icon: ArrowLeftRight, bg: 'bg-luka-info/10', color: 'text-luka-info' },
+    ADJUSTMENT: { icon: ArrowLeftRight, bg: 'bg-luka-warning/10', color: 'text-luka-warning' },
   };
   const { icon: Icon, bg, color } = config[kind] ?? config.ADJUSTMENT;
   return (
@@ -144,12 +144,17 @@ function EmptyTransactions() {
 }
 
 // ─── Data component ────────────────────────────────────────────────────────
-export async function RecentTransactions() {
+interface RecentTransactionsProps {
+  startDate: string;
+  endDate: string;
+}
+
+export async function RecentTransactions({ startDate, endDate }: RecentTransactionsProps) {
   // Fetch a larger batch so that after filtering out historical rows we still
   // have enough to fill the 5-row preview. Historical rows are those that
   // occurred at or before the most recent ADJUSTMENT for their account.
   const [result, accountsResult] = await Promise.all([
-    getTransactions({ limit: 20, page: 1 }),
+    getTransactions({ limit: 20, page: 1, startDate, endDate }),
     getBankAccounts(),
   ]);
 
@@ -221,50 +226,50 @@ export async function RecentTransactions() {
                 : null;
 
             return (
-            <Link
-              key={tx.id}
-              href={`/transactions?transactionId=${tx.id}`}
-              className={cn(
-                'group flex sm:grid sm:grid-cols-[1fr_160px_120px_100px_100px]',
-                'items-center gap-4 px-6 py-4',
-                'border-b border-neu last:border-0',
-                'transition-colors duration-150',
-                'hover:bg-neu-raised/40 cursor-pointer',
-              )}
-            >
-              {/* Description + category */}
-              <div className="flex items-center gap-3 min-w-0">
-                <KindIcon kind={tx.kind} />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-white/80 truncate">
-                    {transferLabel ?? tx.description ?? '—'}
-                  </p>
-                  <p className="text-xs text-neu-muted truncate">
-                    {tx.categories?.name ?? (KIND_LABELS[tx.kind] ?? tx.kind)}
-                  </p>
+              <Link
+                key={tx.id}
+                href={`/transactions?transactionId=${tx.id}`}
+                className={cn(
+                  'group flex sm:grid sm:grid-cols-[1fr_160px_120px_100px_100px]',
+                  'items-center gap-4 px-6 py-4',
+                  'border-b border-neu last:border-0',
+                  'transition-colors duration-150',
+                  'hover:bg-neu-raised/40 cursor-pointer',
+                )}
+              >
+                {/* Description + category */}
+                <div className="flex items-center gap-3 min-w-0">
+                  <KindIcon kind={tx.kind} />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-white/80 truncate">
+                      {transferLabel ?? tx.description ?? '—'}
+                    </p>
+                    <p className="text-xs text-neu-muted truncate">
+                      {tx.categories?.name ?? (KIND_LABELS[tx.kind] ?? tx.kind)}
+                    </p>
+                  </div>
                 </div>
-              </div>
 
-              {/* Account */}
-              <p className="hidden sm:block text-xs text-white/50 truncate">
-                {(tx.accounts as any)?.name ?? '—'}
-              </p>
+                {/* Account */}
+                <p className="hidden sm:block text-xs text-white/50 truncate">
+                  {(tx.accounts as any)?.name ?? '—'}
+                </p>
 
-              {/* Date */}
-              <p className="hidden sm:block text-xs text-neu-muted tabular-nums">
-                {tx.occurred_at ? formatDate(tx.occurred_at, "d MMM yyyy") : '—'}
-              </p>
+                {/* Date */}
+                <p className="hidden sm:block text-xs text-neu-muted tabular-nums">
+                  {tx.occurred_at ? formatDate(tx.occurred_at, "d MMM yyyy") : '—'}
+                </p>
 
-              {/* Status */}
-              <div className="hidden sm:flex">
-                <StatusBadge status={tx.status} />
-              </div>
+                {/* Status */}
+                <div className="hidden sm:flex">
+                  <StatusBadge status={tx.status} />
+                </div>
 
-              {/* Amount */}
-              <div className="ml-auto sm:ml-0 text-right">
-                <Amount transaction={tx} />
-              </div>
-            </Link>
+                {/* Amount */}
+                <div className="ml-auto sm:ml-0 text-right">
+                  <Amount transaction={tx} />
+                </div>
+              </Link>
             );
           })}
         </div>
