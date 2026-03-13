@@ -20,10 +20,7 @@ const baseTransactionSchema = {
   description: z.string().max(500).optional().nullable(),
   occurred_at: z.coerce
     .date({ invalid_type_error: 'Formato de fecha inválido' })
-    .transform((d) => {
-      const pad = (n: number) => String(n).padStart(2, '0');
-      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
-    }),
+    .transform((d) => d.toISOString()),
   posted_at: z
     .union([
       z.string(),
@@ -61,25 +58,22 @@ export const updateTransactionSchema = z
       .refine((val) => val !== 0, { message: 'El monto no puede ser cero' })
       .transform((val) => new Decimal(val).toDecimalPlaces(2).toNumber())
       .optional(),
-  kind: z.enum(['NORMAL', 'TRANSFER', 'ADJUSTMENT', 'FEE', 'INTEREST']).optional(),
-  status: z.enum(['PENDING', 'POSTED', 'VOID']).optional(),
-  category_id: z.string().uuid('Categoría inválida').optional().nullable(),
-  description: z.string().max(500).optional().nullable(),
-  occurred_at: z.coerce
-    .date({ invalid_type_error: 'Formato de fecha inválido' })
-    .transform((d) => {
-      const pad = (n: number) => String(n).padStart(2, '0');
-      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
-    })
-    .optional(),
-  posted_at: z
-    .union([
-      z.string(),
-      z.coerce.date().transform((d) => d.toISOString()),
-    ])
-    .optional()
-    .nullable(),
-  source: z.string().max(50).optional().nullable(),
+    kind: z.enum(['NORMAL', 'TRANSFER', 'ADJUSTMENT', 'FEE', 'INTEREST']).optional(),
+    status: z.enum(['PENDING', 'POSTED', 'VOID']).optional(),
+    category_id: z.string().uuid('Categoría inválida').optional().nullable(),
+    description: z.string().max(500).optional().nullable(),
+    occurred_at: z.coerce
+      .date({ invalid_type_error: 'Formato de fecha inválido' })
+      .transform((d) => d.toISOString())
+      .optional(),
+    posted_at: z
+      .union([
+        z.string(),
+        z.coerce.date().transform((d) => d.toISOString()),
+      ])
+      .optional()
+      .nullable(),
+    source: z.string().max(50).optional().nullable(),
   })
   .refine(
     (data) => {

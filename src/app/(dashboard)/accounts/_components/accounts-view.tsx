@@ -141,7 +141,7 @@ function AccountCard({
         {account.opened_at && (
           <p className="text-xs text-neu-muted text-right">
             Apertura<br />
-            <span className="text-white/40">{formatDate(account.opened_at, 'MMM yyyy')}</span>
+            <span className="text-white/40" suppressHydrationWarning>{formatDate(account.opened_at, 'MMM yyyy')}</span>
           </p>
         )}
       </div>

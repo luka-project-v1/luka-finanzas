@@ -108,17 +108,17 @@ export function TransactionDetailSheet({
           setTransferInfoForEdit(
             result.data.transferInfo
               ? {
-                  [result.data.transaction.transfer_id!]: {
-                    fromAccount: {
-                      id: result.data.transferInfo.fromAccount.id,
-                      name: result.data.transferInfo.fromAccount.name,
-                    },
-                    toAccount: {
-                      id: result.data.transferInfo.toAccount.id,
-                      name: result.data.transferInfo.toAccount.name,
-                    },
+                [result.data.transaction.transfer_id!]: {
+                  fromAccount: {
+                    id: result.data.transferInfo.fromAccount.id,
+                    name: result.data.transferInfo.fromAccount.name,
                   },
-                }
+                  toAccount: {
+                    id: result.data.transferInfo.toAccount.id,
+                    name: result.data.transferInfo.toAccount.name,
+                  },
+                },
+              }
               : {},
           );
         } else {
@@ -264,11 +264,11 @@ function TransactionDetailContent({
   const convertedAmount =
     transferInfo && needsConversion
       ? convertToBase(
-          amountAbs,
-          transferInfo.fromAccount.currencyCode,
-          preferredCode,
-          new Map(Object.entries(rateByCode)),
-        )
+        amountAbs,
+        transferInfo.fromAccount.currencyCode,
+        preferredCode,
+        new Map(Object.entries(rateByCode)),
+      )
       : null;
 
   return (
@@ -358,7 +358,7 @@ function TransactionDetailContent({
           </div>
           <div>
             <p className="text-[10px] text-neu-muted uppercase tracking-widest">Fecha</p>
-            <p className="text-white/90">
+            <p className="text-white/90" suppressHydrationWarning>
               {transaction.occurred_at
                 ? formatDate(transaction.occurred_at, "d 'de' MMMM yyyy, HH:mm")
                 : '—'}

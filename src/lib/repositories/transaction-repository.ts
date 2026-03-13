@@ -29,7 +29,7 @@ export const transactionRepository = {
     }
   ): Promise<{ data: TransactionWithRelations[]; count: number }> {
     const supabase = await createClient();
-    
+
     let query = supabase
       .from('transactions')
       .select(`
@@ -43,10 +43,12 @@ export const transactionRepository = {
       .eq('user_id', userId);
 
     if (filters?.startDate) {
-      query = query.gte('occurred_at', `${filters.startDate} 00:00:00`);
+      const startStr = filters.startDate.includes('T') ? filters.startDate : `${filters.startDate} 00:00:00`;
+      query = query.gte('occurred_at', startStr);
     }
     if (filters?.endDate) {
-      query = query.lte('occurred_at', `${filters.endDate} 23:59:59`);
+      const endStr = filters.endDate.includes('T') ? filters.endDate : `${filters.endDate} 23:59:59`;
+      query = query.lte('occurred_at', endStr);
     }
     if (filters?.categoryId) {
       query = query.eq('category_id', filters.categoryId);
@@ -122,7 +124,7 @@ export const transactionRepository = {
 
   async getById(id: string, userId: string): Promise<TransactionWithRelations | null> {
     const supabase = await createClient();
-    
+
     const { data, error } = await supabase
       .from('transactions')
       .select(`
@@ -146,7 +148,7 @@ export const transactionRepository = {
 
   async create(transaction: TransactionInsert): Promise<TransactionWithRelations> {
     const supabase = await createClient();
-    
+
     const { data, error } = await supabase
       .from('transactions')
       .insert(transaction)
@@ -274,7 +276,7 @@ export const transactionRepository = {
 
   async delete(id: string, userId: string): Promise<void> {
     const supabase = await createClient();
-    
+
     const { error } = await supabase
       .from('transactions')
       .delete()
@@ -468,14 +470,16 @@ export const transactionRepository = {
 
     // Fetch transactions with account currency code for conversion.
     // Exclude TRANSFER and ADJUSTMENT from income/expense calculations.
-    // Include account_id to apply the per-account adjustment filter below.
+    const startStr = startDate.includes('T') ? startDate : `${startDate} 00:00:00`;
+    const endStr = endDate.includes('T') ? endDate : `${endDate} 23:59:59`;
+
     const { data, error } = await supabase
       .from('transactions')
       .select('signed_amount, kind, account_id, occurred_at, accounts!inner(currency_code, account_types!inner(balance_nature))')
       .eq('user_id', userId)
       .eq('status', 'POSTED')
-      .gte('occurred_at', `${startDate} 00:00:00`)
-      .lte('occurred_at', `${endDate} 23:59:59`)
+      .gte('occurred_at', startStr)
+      .lte('occurred_at', endStr)
       .not('kind', 'in', '(TRANSFER,ADJUSTMENT)');
 
     if (error) throw error;

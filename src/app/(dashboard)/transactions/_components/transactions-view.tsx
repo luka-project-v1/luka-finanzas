@@ -42,8 +42,8 @@ type Category = Database['public']['Tables']['categories']['Row'];
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 const CATEGORY_COLORS = [
-  '#D97757','#4ade80','#60a5fa','#f87171','#fbbf24',
-  '#a78bfa','#34d399','#fb923c','#e879f9','#22d3ee',
+  '#D97757', '#4ade80', '#60a5fa', '#f87171', '#fbbf24',
+  '#a78bfa', '#34d399', '#fb923c', '#e879f9', '#22d3ee',
 ];
 
 function categoryColor(name: string): string {
@@ -56,13 +56,13 @@ function categoryColor(name: string): string {
 
 function KindIcon({ kind }: { kind: string }) {
   const config: Record<string, { Icon: React.ElementType; color: string; bg: string }> = {
-    NORMAL:     { Icon: ArrowUpRight,   color: 'text-white/40', bg: 'bg-neu-raised' },
-    INCOME:     { Icon: ArrowUpRight,   color: 'text-luka-income',  bg: 'bg-luka-income/10' },
-    EXPENSE:    { Icon: ArrowDownRight, color: 'text-luka-expense', bg: 'bg-luka-expense/10' },
-    TRANSFER:   { Icon: ArrowLeftRight, color: 'text-luka-info',    bg: 'bg-luka-info/10' },
+    NORMAL: { Icon: ArrowUpRight, color: 'text-white/40', bg: 'bg-neu-raised' },
+    INCOME: { Icon: ArrowUpRight, color: 'text-luka-income', bg: 'bg-luka-income/10' },
+    EXPENSE: { Icon: ArrowDownRight, color: 'text-luka-expense', bg: 'bg-luka-expense/10' },
+    TRANSFER: { Icon: ArrowLeftRight, color: 'text-luka-info', bg: 'bg-luka-info/10' },
     ADJUSTMENT: { Icon: SlidersHorizontal, color: 'text-luka-warning', bg: 'bg-luka-warning/10' },
-    FEE:        { Icon: ArrowDownRight, color: 'text-luka-expense', bg: 'bg-luka-expense/10' },
-    INTEREST:   { Icon: ArrowUpRight,   color: 'text-luka-warning', bg: 'bg-luka-warning/10' },
+    FEE: { Icon: ArrowDownRight, color: 'text-luka-expense', bg: 'bg-luka-expense/10' },
+    INTEREST: { Icon: ArrowUpRight, color: 'text-luka-warning', bg: 'bg-luka-warning/10' },
   };
   const { Icon, color, bg } = config[kind] ?? config.NORMAL;
   return (
@@ -76,16 +76,16 @@ function KindIcon({ kind }: { kind: string }) {
 }
 
 const STATUS_LABELS: Record<string, string> = {
-  POSTED:  'Registrada',
+  POSTED: 'Registrada',
   PENDING: 'Pendiente',
-  VOID:    'Anulada',
+  VOID: 'Anulada',
 };
 
 function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
-    POSTED:  'bg-luka-income/10 text-luka-income border-luka-income/20',
+    POSTED: 'bg-luka-income/10 text-luka-income border-luka-income/20',
     PENDING: 'bg-[#D97757]/10 text-[#D97757] border-[#D97757]/20',
-    VOID:    'bg-neu-raised text-neu-muted border-neu',
+    VOID: 'bg-neu-raised text-neu-muted border-neu',
   };
   return (
     <span className={cn(
@@ -99,22 +99,22 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 const KIND_LABELS: Record<string, string> = {
-  NORMAL:     'Normal',
-  INCOME:     'Ingreso',
-  EXPENSE:    'Gasto',
-  TRANSFER:   'Transferencia',
+  NORMAL: 'Normal',
+  INCOME: 'Ingreso',
+  EXPENSE: 'Gasto',
+  TRANSFER: 'Transferencia',
   ADJUSTMENT: 'Ajuste',
-  FEE:        'Comisión',
-  INTEREST:   'Interés',
+  FEE: 'Comisión',
+  INTEREST: 'Interés',
 };
 
 function KindBadge({ kind }: { kind: string }) {
   if (kind === 'NORMAL') return null;
   const colors: Record<string, string> = {
-    TRANSFER:   'bg-luka-info/10 text-luka-info border-luka-info/20',
+    TRANSFER: 'bg-luka-info/10 text-luka-info border-luka-info/20',
     ADJUSTMENT: 'bg-luka-warning/10 text-luka-warning border-luka-warning/20',
-    FEE:        'bg-luka-expense/10 text-luka-expense border-luka-expense/20',
-    INTEREST:   'bg-luka-warning/10 text-luka-warning border-luka-warning/20',
+    FEE: 'bg-luka-expense/10 text-luka-expense border-luka-expense/20',
+    INTEREST: 'bg-luka-warning/10 text-luka-warning border-luka-warning/20',
   };
   return (
     <span className={cn(
@@ -424,13 +424,13 @@ function TransactionRow({
         }
       }}
       className={cn(
-      'group border-b last:border-0 cursor-pointer',
-      'hover:bg-[#161616]/60 transition-colors duration-100',
-      isHistorical && 'opacity-40 grayscale',
-      isPending
-        ? 'border-dashed border-[#D97757]/50 bg-[#D97757]/[0.03]'
-        : 'border-[#1a1a1a]',
-    )}>
+        'group border-b last:border-0 cursor-pointer',
+        'hover:bg-[#161616]/60 transition-colors duration-100',
+        isHistorical && 'opacity-40 grayscale',
+        isPending
+          ? 'border-dashed border-[#D97757]/50 bg-[#D97757]/[0.03]'
+          : 'border-[#1a1a1a]',
+      )}>
       {/* Category + Description */}
       <td className="px-5 py-4">
         <div className="flex items-center gap-3">
@@ -482,10 +482,10 @@ function TransactionRow({
 
       {/* Date */}
       <td className="hidden sm:table-cell px-5 py-4 whitespace-nowrap">
-        <p className="text-sm text-white/50 tabular-nums">
+        <p className="text-sm text-white/50 tabular-nums" suppressHydrationWarning>
           {tx.occurred_at ? formatDate(tx.occurred_at, 'd MMM yyyy') : '—'}
         </p>
-        <p className="text-xs text-neu-muted tabular-nums">
+        <p className="text-xs text-neu-muted tabular-nums" suppressHydrationWarning>
           {tx.occurred_at ? formatDate(tx.occurred_at, 'HH:mm') : ''}
         </p>
       </td>
@@ -671,9 +671,19 @@ export function TransactionsView({
   const fetchPage = useCallback(
     (newFilters: Filters, newPage: number) => {
       startTransition(async () => {
+        let formattedStartDate: string | undefined = undefined;
+        let formattedEndDate: string | undefined = undefined;
+
+        if (newFilters.startDate) {
+          formattedStartDate = new Date(newFilters.startDate + 'T00:00:00').toISOString();
+        }
+        if (newFilters.endDate) {
+          formattedEndDate = new Date(newFilters.endDate + 'T23:59:59.999').toISOString();
+        }
+
         const result = await getTransactions({
-          startDate: newFilters.startDate || undefined,
-          endDate: newFilters.endDate || undefined,
+          startDate: formattedStartDate || undefined,
+          endDate: formattedEndDate || undefined,
           categoryId: newFilters.categoryId || undefined,
           accountId: newFilters.accountId || undefined,
           page: newPage,
@@ -804,12 +814,12 @@ export function TransactionsView({
                 <thead>
                   <tr className="border-b border-[#1e1e1e]">
                     {[
-                      { label: 'Descripción',  className: 'px-5 py-3 text-left w-full' },
-                      { label: 'Cuenta',       className: 'hidden md:table-cell px-5 py-3 text-left' },
-                      { label: 'Fecha',        className: 'hidden sm:table-cell px-5 py-3 text-left' },
-                      { label: 'Estado',       className: 'hidden lg:table-cell px-5 py-3 text-left' },
-                      { label: 'Monto',        className: 'px-5 py-3 text-right' },
-                      { label: '',             className: 'px-5 py-3 text-right w-14' },
+                      { label: 'Descripción', className: 'px-5 py-3 text-left w-full' },
+                      { label: 'Cuenta', className: 'hidden md:table-cell px-5 py-3 text-left' },
+                      { label: 'Fecha', className: 'hidden sm:table-cell px-5 py-3 text-left' },
+                      { label: 'Estado', className: 'hidden lg:table-cell px-5 py-3 text-left' },
+                      { label: 'Monto', className: 'px-5 py-3 text-right' },
+                      { label: '', className: 'px-5 py-3 text-right w-14' },
                     ].map((h) => (
                       <th
                         key={h.label}

@@ -173,8 +173,10 @@ export const accountRepository = {
       .order('occurred_at', { ascending: false })
       .limit(1);
 
-    if (endDate) {
-      adjustmentQuery = adjustmentQuery.lte('occurred_at', `${endDate} 23:59:59`);
+    const endStr = endDate ? (endDate.includes('T') ? endDate : `${endDate} 23:59:59`) : undefined;
+
+    if (endStr) {
+      adjustmentQuery = adjustmentQuery.lte('occurred_at', endStr);
     }
 
     const { data: adjustmentData } = await adjustmentQuery;
@@ -190,8 +192,8 @@ export const accountRepository = {
         .neq('kind', 'ADJUSTMENT')
         .gt('occurred_at', lastAdjustment.occurred_at);
 
-      if (endDate) {
-        laterQuery = laterQuery.lte('occurred_at', `${endDate} 23:59:59`);
+      if (endStr) {
+        laterQuery = laterQuery.lte('occurred_at', endStr);
       }
 
       const { data: laterData, error: laterError } = await laterQuery;
@@ -215,8 +217,8 @@ export const accountRepository = {
       .eq('account_id', accountId)
       .eq('status', 'POSTED');
 
-    if (endDate) {
-      allQuery = allQuery.lte('occurred_at', `${endDate} 23:59:59`);
+    if (endStr) {
+      allQuery = allQuery.lte('occurred_at', endStr);
     }
 
     const { data, error } = await allQuery;

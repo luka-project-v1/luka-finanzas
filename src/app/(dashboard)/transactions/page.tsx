@@ -10,8 +10,22 @@ export const metadata = {
 
 export default async function TransactionsPage() {
   const now = new Date();
-  const startDate = format(startOfMonth(now), 'yyyy-MM-dd');
-  const endDate = format(endOfMonth(now), 'yyyy-MM-dd');
+  const startDateObj = startOfMonth(now);
+  const endDateObj = endOfMonth(now);
+
+  const startDate = new Date(
+    startDateObj.getFullYear(),
+    startDateObj.getMonth(),
+    startDateObj.getDate(),
+    0, 0, 0
+  ).toISOString();
+
+  const endDate = new Date(
+    endDateObj.getFullYear(),
+    endDateObj.getMonth(),
+    endDateObj.getDate(),
+    23, 59, 59, 999
+  ).toISOString();
 
   const [txResult, accountsResult, categoriesResult] = await Promise.all([
     getTransactions({ startDate, endDate, page: 1, limit: 20 }),
@@ -20,11 +34,11 @@ export default async function TransactionsPage() {
   ]);
 
   const initialTransactions = txResult.success ? txResult.data.data : [];
-  const initialTotal        = txResult.success ? txResult.data.count : 0;
-  const initialTotalPages   = txResult.success ? txResult.data.totalPages : 0;
+  const initialTotal = txResult.success ? txResult.data.count : 0;
+  const initialTotalPages = txResult.success ? txResult.data.totalPages : 0;
   const initialTransferInfo = txResult.success ? txResult.data.transferInfo ?? {} : {};
-  const accounts            = accountsResult.success ? accountsResult.data : [];
-  const categories          = categoriesResult.success ? categoriesResult.data : [];
+  const accounts = accountsResult.success ? accountsResult.data : [];
+  const categories = categoriesResult.success ? categoriesResult.data : [];
 
   const accountIds = accounts.map((a) => a.id);
   const adjustmentResult = await getLastAdjustmentDates(accountIds);
@@ -38,7 +52,7 @@ export default async function TransactionsPage() {
       initialTotalPages={initialTotalPages}
       initialTransferInfo={initialTransferInfo}
       accounts={accounts}
-      categories={categories}
+      categories={categories as any}
       initialLastAdjustmentByAccount={lastAdjustmentByAccount}
     />
   );

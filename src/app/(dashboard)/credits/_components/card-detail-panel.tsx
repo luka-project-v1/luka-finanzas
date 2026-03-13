@@ -82,16 +82,16 @@ function StatTile({
 
 // ─── Status badge ─────────────────────────────────────────────────────────
 const STATUS_LABELS: Record<string, string> = {
-  POSTED:  'Registrada',
+  POSTED: 'Registrada',
   PENDING: 'Pendiente',
-  VOID:    'Anulada',
+  VOID: 'Anulada',
 };
 
 function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
-    POSTED:  'bg-luka-income/10 text-luka-income border-luka-income/20',
+    POSTED: 'bg-luka-income/10 text-luka-income border-luka-income/20',
     PENDING: 'bg-luka-warning/10 text-luka-warning border-luka-warning/20',
-    VOID:    'bg-neu-raised text-neu-muted border-neu',
+    VOID: 'bg-neu-raised text-neu-muted border-neu',
   };
   return (
     <span
@@ -160,7 +160,7 @@ function TxRow({ tx }: { tx: TransactionWithRelations }) {
 
       {/* Date */}
       <div className="hidden sm:block text-right shrink-0">
-        <p className="text-xs text-white/40 tabular-nums">
+        <p className="text-xs text-white/40 tabular-nums" suppressHydrationWarning>
           {tx.occurred_at ? formatDate(tx.occurred_at, 'MMM d') : '—'}
         </p>
       </div>
@@ -240,7 +240,7 @@ export function CardDetailPanel({ card }: CardDetailPanelProps) {
       if (result.success) {
         setTransactions(result.data as TransactionWithRelations[]);
       } else {
-        setLoadError(result.error);
+        setLoadError((result as any).error);
       }
     });
   }, [card.id]);

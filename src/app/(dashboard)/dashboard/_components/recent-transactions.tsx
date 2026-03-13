@@ -256,7 +256,7 @@ export async function RecentTransactions({ startDate, endDate }: RecentTransacti
                 </p>
 
                 {/* Date */}
-                <p className="hidden sm:block text-xs text-neu-muted tabular-nums">
+                <p className="hidden sm:block text-xs text-neu-muted tabular-nums" suppressHydrationWarning>
                   {tx.occurred_at ? formatDate(tx.occurred_at, "d MMM yyyy") : '—'}
                 </p>
 

@@ -23,8 +23,23 @@ export default function DashboardPage({ searchParams }: DashboardProps) {
   const currentYear = typeof searchParams.year === 'string' ? parseInt(searchParams.year, 10) : now.getFullYear();
 
   const targetDate = new Date(currentYear, currentMonth - 1, 1);
-  const startDate = format(startOfMonth(targetDate), 'yyyy-MM-dd');
-  const endDate = format(endOfMonth(targetDate), 'yyyy-MM-dd');
+  const startDateObj = startOfMonth(targetDate);
+  const endDateObj = endOfMonth(targetDate);
+
+  const startDate = new Date(
+    startDateObj.getFullYear(),
+    startDateObj.getMonth(),
+    startDateObj.getDate(),
+    0, 0, 0
+  ).toISOString();
+
+  const endDate = new Date(
+    endDateObj.getFullYear(),
+    endDateObj.getMonth(),
+    endDateObj.getDate(),
+    23, 59, 59, 999
+  ).toISOString();
+
   const monthLabel = format(targetDate, 'MMMM yyyy', { locale: es });
 
   return (

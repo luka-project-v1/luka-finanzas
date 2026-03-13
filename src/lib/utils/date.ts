@@ -12,10 +12,12 @@ import { es } from 'date-fns/locale';
 export function formatDate(date: Date | string, formatStr: string = 'dd MMM yyyy'): string {
   let dateObj: Date;
   if (typeof date === 'string') {
-    // Take only "YYYY-MM-DDTHH:mm:ss" (first 19 chars), replace space separator
-    // with T, then parse as a tz-naive local date so JS treats it as wall-clock time.
-    const stripped = date.slice(0, 19).replace(' ', 'T');
-    dateObj = new Date(stripped);
+    let dStr = date.replace(' ', 'T');
+    // If string lacks a timezone offset, treat it as UTC from the database
+    if (!dStr.endsWith('Z') && !dStr.match(/[+-]\d{2}:?\d{2}$/)) {
+      dStr += 'Z';
+    }
+    dateObj = new Date(dStr);
   } else {
     dateObj = date;
   }
@@ -29,8 +31,11 @@ export function formatDate(date: Date | string, formatStr: string = 'dd MMM yyyy
 export function formatDateForInput(date: Date | string): string {
   let dateObj: Date;
   if (typeof date === 'string') {
-    const stripped = date.slice(0, 19).replace(' ', 'T');
-    dateObj = new Date(stripped);
+    let dStr = date.replace(' ', 'T');
+    if (!dStr.endsWith('Z') && !dStr.match(/[+-]\d{2}:?\d{2}$/)) {
+      dStr += 'Z';
+    }
+    dateObj = new Date(dStr);
   } else {
     dateObj = date;
   }
