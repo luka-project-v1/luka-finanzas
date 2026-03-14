@@ -38,7 +38,7 @@ export const accountRepository = {
     // Calculate balance for each account
     const accountsWithBalance = await Promise.all(
       (data || []).map(async (account) => {
-        const balance = await this.calculateBalance(account.id, undefined); // Default getAll doesn't filter
+        const balance = await this.calculateBalance(account.id, undefined, userId);
         return { ...account, balance };
       })
     );
@@ -66,7 +66,7 @@ export const accountRepository = {
       throw error;
     }
 
-    const balance = await this.calculateBalance(id, undefined); // Default getById doesn't filter
+    const balance = await this.calculateBalance(id, undefined, userId);
     return { ...data, balance } as AccountWithDetails;
   },
 
@@ -134,7 +134,7 @@ export const accountRepository = {
 
     if (error) throw error;
 
-    const balance = await this.calculateBalance(id, undefined); // Default update doesn't filter
+    const balance = await this.calculateBalance(id, undefined, userId);
     return { ...data, balance } as AccountWithDetails;
   },
 
@@ -160,8 +160,11 @@ export const accountRepository = {
   // Only transactions (non-ADJUSTMENT) occurring AFTER that checkpoint are accumulated.
   // If no ADJUSTMENT exists, all POSTED transactions are summed (legacy behaviour).
   // If endDate is provided, only transactions up to that date (inclusive) are considered.
-  async calculateBalance(accountId: string, endDate?: string): Promise<number> {
+  // userId is required for multi-tenant isolation (IDOR protection).
+  async calculateBalance(accountId: string, endDate?: string, userId?: string): Promise<number> {
     const supabase = await createClient();
+
+    const endStr = endDate ? (endDate.includes('T') ? endDate : `${endDate} 23:59:59`) : undefined;
 
     // Build base query for adjustment to respect the endDate if provided
     let adjustmentQuery = supabase
@@ -173,7 +176,10 @@ export const accountRepository = {
       .order('occurred_at', { ascending: false })
       .limit(1);
 
-    const endStr = endDate ? (endDate.includes('T') ? endDate : `${endDate} 23:59:59`) : undefined;
+    // 🔐 Enforce user_id isolation to prevent IDOR attacks
+    if (userId) {
+      adjustmentQuery = adjustmentQuery.eq('user_id', userId);
+    }
 
     if (endStr) {
       adjustmentQuery = adjustmentQuery.lte('occurred_at', endStr);
@@ -191,6 +197,11 @@ export const accountRepository = {
         .eq('status', 'POSTED')
         .neq('kind', 'ADJUSTMENT')
         .gt('occurred_at', lastAdjustment.occurred_at);
+
+      // 🔐 Enforce user_id isolation
+      if (userId) {
+        laterQuery = laterQuery.eq('user_id', userId);
+      }
 
       if (endStr) {
         laterQuery = laterQuery.lte('occurred_at', endStr);
@@ -216,6 +227,11 @@ export const accountRepository = {
       .select('signed_amount')
       .eq('account_id', accountId)
       .eq('status', 'POSTED');
+
+    // 🔐 Enforce user_id isolation
+    if (userId) {
+      allQuery = allQuery.eq('user_id', userId);
+    }
 
     if (endStr) {
       allQuery = allQuery.lte('occurred_at', endStr);
