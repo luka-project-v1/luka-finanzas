@@ -8,6 +8,7 @@ import { accountRepository } from '@/lib/repositories/account-repository';
 import { createTransactionSchema, updateTransactionSchema } from '@/lib/validations/transaction-schema';
 import { createClient } from '@/lib/supabase/server';
 import { convertToBase } from '@/lib/utils/currency';
+import { getBaseCurrency } from '@/lib/actions/preferences';
 import { syncSystemCategories } from '@/lib/actions/categories';
 import type { Database } from '@/lib/types/database.types';
 import type { TransactionWithRelations } from '@/lib/repositories/transaction-repository';
@@ -141,18 +142,10 @@ export async function getTransactionDetail(id: string): Promise<
     const rateByCode = await getCurrencyRateMap(user.id);
     const rateRecord: Record<string, number> = Object.fromEntries(rateByCode);
 
-    const supabase = await createClient();
-    type CurrencyRow = { code: string; exchange_rate_to_preferred: number | null };
-    const { data: currencies } = await (supabase as any)
-      .from('currencies')
-      .select('code, exchange_rate_to_preferred')
-      .eq('user_id', user.id);
+    const baseCurrency = await getBaseCurrency(user.id);
+    const preferredCode = baseCurrency.code;
 
-    const preferredCurrency =
-      (currencies as CurrencyRow[] | null)?.find((c) => c.exchange_rate_to_preferred === 1) ??
-      (currencies as CurrencyRow[] | null)?.find((c) => c.exchange_rate_to_preferred === null) ??
-      (currencies as CurrencyRow[] | null)?.[0];
-    const preferredCode = preferredCurrency?.code ?? 'COP';
+    const supabase = await createClient();
 
     let transferInfo: TransferDetailInfo | undefined;
     if (transaction.transfer_id) {
@@ -521,34 +514,23 @@ export async function getTransactionsSummary(
       return { success: false, error: 'No autorizado' };
     }
 
+    const baseCurrency = await getBaseCurrency(user.id);
+    const preferredCode = baseCurrency.code;
+    const preferredSymbol = baseCurrency.symbol;
+
     // Fetch user currencies to build the exchange-rate map.
-    // Cast to `any` because the `currencies` table is not part of the generated
-    // Supabase database types (it lives in a separate schema migration).
     const supabase = await createClient();
-    type CurrencyRow = {
-      code: string;
-      symbol: string;
-      exchange_rate_to_preferred: number | null;
-    };
+    type CurrencyRow = { code: string; exchange_rate_to_preferred: number | null };
     const { data: currenciesRaw, error: currError } = await (supabase as any)
       .from('currencies')
-      .select('code, symbol, exchange_rate_to_preferred')
+      .select('code, exchange_rate_to_preferred')
       .eq('user_id', user.id);
 
     if (currError) throw currError;
 
     const currencies = (currenciesRaw ?? []) as CurrencyRow[];
 
-    // Determine the preferred currency (rate === 1 wins, then null fallback, then first)
-    const preferredCurrency =
-      currencies.find((c) => c.exchange_rate_to_preferred === 1) ??
-      currencies.find((c) => c.exchange_rate_to_preferred === null) ??
-      currencies[0];
-
-    const preferredCode = preferredCurrency?.code ?? 'COP';
-    const preferredSymbol = preferredCurrency?.symbol ?? '$';
-
-    // Build a map: currencyCode → rate_to_preferred
+    // Build a map: currencyCode → rate (units per 1 USD from API)
     const rateByCode = new Map<string, number>();
     for (const c of currencies) {
       const rate = c.exchange_rate_to_preferred;

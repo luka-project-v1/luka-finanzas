@@ -5,6 +5,7 @@ import { accountRepository } from '@/lib/repositories/account-repository';
 import { createBankAccountSchema, updateBankAccountSchema } from '@/lib/validations/account-schema';
 import { createClient } from '@/lib/supabase/server';
 import { convertToBase } from '@/lib/utils/currency';
+import { getBaseCurrency } from '@/lib/actions/preferences';
 import type { AccountWithDetails } from '@/lib/repositories/account-repository';
 
 type ActionResult<T> =
@@ -274,10 +275,14 @@ export async function getTotalBalanceInPreferredCurrency(endDate?: string): Prom
 
     const supabase = await createClient();
 
-    type CurrencyRow = { code: string; symbol: string; exchange_rate_to_preferred: number | null };
+    const baseCurrency = await getBaseCurrency(user.id);
+    const preferredCode = baseCurrency.code;
+    const preferredSymbol = baseCurrency.symbol;
+
+    type CurrencyRow = { code: string; exchange_rate_to_preferred: number | null };
     const { data: currenciesRaw, error: currError } = await (supabase as any)
       .from('currencies')
-      .select('code, symbol, exchange_rate_to_preferred')
+      .select('code, exchange_rate_to_preferred')
       .eq('user_id', user.id);
 
     if (currError) throw currError;
@@ -285,7 +290,7 @@ export async function getTotalBalanceInPreferredCurrency(endDate?: string): Prom
 
     const bankAccountType = await accountRepository.getAccountTypeByCode('BANK_ACCOUNT');
     if (!bankAccountType) {
-      return { success: true, data: { total: 0, preferredCode: 'COP', preferredSymbol: 'COP$' } };
+      return { success: true, data: { total: 0, preferredCode, preferredSymbol } };
     }
 
     const accounts = await accountRepository.getAll(user.id);
@@ -300,14 +305,6 @@ export async function getTotalBalanceInPreferredCurrency(endDate?: string): Prom
     );
 
     const bankAccounts = accountsWithBalance.filter((a) => a.account_type_id === bankAccountType.id && a.status === 'ACTIVE');
-
-    const preferredCurrency =
-      currencies.find((c) => c.exchange_rate_to_preferred === 1) ??
-      currencies.find((c) => c.exchange_rate_to_preferred === null) ??
-      currencies[0];
-
-    const preferredCode = preferredCurrency?.code ?? 'COP';
-    const preferredSymbol = preferredCurrency?.symbol ?? 'COP$';
 
     const rateByCode = new Map<string, number>();
     for (const c of currencies) {

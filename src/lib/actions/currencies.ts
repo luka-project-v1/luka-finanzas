@@ -122,14 +122,14 @@ export async function getOrCreateDefaultCurrencies(): Promise<ActionResult<Curre
         user_id: user.id,
         code: 'USD',
         name: 'US Dollar',
-        symbol: '$',
+        symbol: 'USD $',
         exchange_rate_to_preferred: 1,
       },
       {
         user_id: user.id,
         code: 'COP',
         name: 'Colombian Peso',
-        symbol: '$',
+        symbol: 'COP $',
         exchange_rate_to_preferred: 1,
       },
     ];

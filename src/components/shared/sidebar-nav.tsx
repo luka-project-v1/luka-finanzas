@@ -9,6 +9,7 @@ import {
   ArrowLeftRight,
   Tag,
   CircleDollarSign,
+  Settings,
   LogOut,
   Coins,
 } from 'lucide-react';
@@ -22,6 +23,7 @@ const NAV_ITEMS = [
   { label: 'Transacciones',       href: '/transactions',   icon: ArrowLeftRight },
   { label: 'Categorías',          href: '/categories',     icon: Tag },
   { label: 'Divisas',             href: '/currencies',     icon: CircleDollarSign },
+  { label: 'Ajustes',             href: '/settings',       icon: Settings },
 ] as const;
 
 interface SidebarNavProps {
