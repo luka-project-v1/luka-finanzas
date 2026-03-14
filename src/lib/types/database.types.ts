@@ -440,9 +440,12 @@ export type Database = {
           description: string | null
           id: string
           kind: Database["public"]["Enums"]["TransactionKind"]
+          lender_name: string | null
+          loan_type: string
           occurred_at: string
           posted_at: string | null
           reconciliation_id: string | null
+          repaid_amount: number
           signed_amount: number
           source: string | null
           status: Database["public"]["Enums"]["TransactionStatus"]
@@ -458,9 +461,12 @@ export type Database = {
           description?: string | null
           id?: string
           kind?: Database["public"]["Enums"]["TransactionKind"]
+          lender_name?: string | null
+          loan_type?: string
           occurred_at: string
           posted_at?: string | null
           reconciliation_id?: string | null
+          repaid_amount?: number
           signed_amount: number
           source?: string | null
           status?: Database["public"]["Enums"]["TransactionStatus"]
@@ -476,9 +482,12 @@ export type Database = {
           description?: string | null
           id?: string
           kind?: Database["public"]["Enums"]["TransactionKind"]
+          lender_name?: string | null
+          loan_type?: string
           occurred_at?: string
           posted_at?: string | null
           reconciliation_id?: string | null
+          repaid_amount?: number
           signed_amount?: number
           source?: string | null
           status?: Database["public"]["Enums"]["TransactionStatus"]

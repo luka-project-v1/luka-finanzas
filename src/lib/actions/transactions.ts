@@ -271,6 +271,9 @@ export async function createTransaction(data: unknown): Promise<ActionResult<Tra
       description: rest.description ?? null,
       posted_at: rest.posted_at ?? null,
       source: rest.source ?? 'MANUAL',
+      loan_type: rest.loan_type ?? 'NONE',
+      lender_name: rest.lender_name ?? null,
+      repaid_amount: rest.repaid_amount ?? 0,
     });
 
     revalidatePath('/dashboard');
@@ -323,7 +326,9 @@ export async function updateTransaction(
     const lastAdjMap = await transactionRepository.getLastAdjustmentPerAccount(user.id, Array.from(new Set(accountIdsToCheck)));
 
     const snapshotOccurredAt = snapshot.occurred_at ?? '';
-    const isHistoric = accountIdsToCheck.some((accId) => {
+    // ADJUSTMENT transactions are the anchor themselves — never treat them as historic
+    const isAdjustment = snapshot.kind === 'ADJUSTMENT';
+    const isHistoric = !isAdjustment && accountIdsToCheck.some((accId) => {
       const adj = lastAdjMap.get(accId);
       return adj && snapshotOccurredAt && snapshotOccurredAt <= adj.date;
     });
@@ -406,6 +411,9 @@ export async function updateTransaction(
             status: finalStatus,
             description: validated.description ?? snapshot.description ?? null,
             category_id: validated.category_id !== undefined ? validated.category_id : snapshot.category_id,
+            loan_type: validated.loan_type ?? snapshot.loan_type ?? 'NONE',
+            lender_name: validated.lender_name !== undefined ? validated.lender_name : snapshot.lender_name,
+            repaid_amount: validated.repaid_amount !== undefined ? validated.repaid_amount : Number(snapshot.repaid_amount ?? 0),
           };
       if (!isHistoric && finalAmount != null) {
         updates.signed_amount = finalAmount;
@@ -611,6 +619,36 @@ export async function getAccountTransactions(
   } catch (error) {
     console.error('Error fetching account transactions:', error);
     return { success: false, error: 'Error al obtener las transacciones de la cuenta' };
+  }
+}
+
+export type LoanSummaryItem = {
+  id: string;
+  loan_type: string;
+  lender_name: string | null;
+  original_amount: number;
+  repaid_amount: number;
+  pending: number;
+  occurred_at: string;
+  description: string | null;
+};
+
+export async function getDebtSummary(): Promise<
+  ActionResult<{
+    totalPending: number;
+    items: LoanSummaryItem[];
+  }>
+> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return { success: false, error: 'No autorizado' };
+    }
+    const summary = await transactionRepository.getLoanSummary(user.id);
+    return { success: true, data: summary };
+  } catch (error) {
+    console.error('Error fetching debt summary:', error);
+    return { success: false, error: 'Error al obtener el resumen de deudas' };
   }
 }
 

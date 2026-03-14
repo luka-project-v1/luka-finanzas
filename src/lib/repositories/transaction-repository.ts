@@ -466,6 +466,61 @@ export const transactionRepository = {
     return map;
   },
 
+  /**
+   * Aggregates all active loan transactions (loan_type != 'NONE') for a user.
+   * Returns the total outstanding debt = sum(|signed_amount|) - sum(repaid_amount),
+   * broken down per loan entry for display purposes.
+   * Only POSTED transactions are included; VOID ones are ignored.
+   */
+  async getLoanSummary(userId: string): Promise<{
+    totalPending: number;
+    items: Array<{
+      id: string;
+      loan_type: string;
+      lender_name: string | null;
+      original_amount: number;
+      repaid_amount: number;
+      pending: number;
+      occurred_at: string;
+      description: string | null;
+    }>;
+  }> {
+    const supabase = await createClient();
+
+    const { data, error } = await supabase
+      .from('transactions')
+      .select('id, loan_type, lender_name, signed_amount, repaid_amount, occurred_at, description')
+      .eq('user_id', userId)
+      .eq('status', 'POSTED')
+      .neq('loan_type', 'NONE')
+      .order('occurred_at', { ascending: false });
+
+    if (error) throw error;
+
+    let totalPending = new Decimal(0);
+    const items = (data ?? []).map((t) => {
+      const original = Math.abs(Number(t.signed_amount));
+      const repaid = Number(t.repaid_amount ?? 0);
+      const pending = new Decimal(original).minus(repaid).toDecimalPlaces(2).toNumber();
+      if (pending > 0) totalPending = totalPending.plus(pending);
+      return {
+        id: t.id,
+        loan_type: t.loan_type,
+        lender_name: t.lender_name,
+        original_amount: original,
+        repaid_amount: repaid,
+        pending,
+        occurred_at: t.occurred_at,
+        description: t.description,
+      };
+    });
+
+    return {
+      totalPending: totalPending.toDecimalPlaces(2).toNumber(),
+      items,
+    };
+  },
+
   async getSummary(
     userId: string,
     startDate: string,

@@ -138,7 +138,8 @@ export async function getOrCreateDefaultCurrencies(): Promise<ActionResult<Curre
       .from('currencies')
       .insert(defaultCurrencies);
 
-    if (error) throw error;
+    // Another concurrent request already inserted the defaults — that's fine.
+    if (error && (error as { code?: string }).code !== '23505') throw error;
 
     return await getCurrencies();
   } catch (error) {

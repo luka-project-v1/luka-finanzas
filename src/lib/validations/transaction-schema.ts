@@ -1,6 +1,14 @@
 import { z } from 'zod';
 import Decimal from 'decimal.js';
 
+export const LOAN_TYPE = {
+  NONE: 'NONE',
+  SELF: 'SELF',
+  EXTERNAL: 'EXTERNAL',
+} as const;
+
+export type LoanType = keyof typeof LOAN_TYPE;
+
 const baseTransactionSchema = {
   account_id: z.string().uuid('Cuenta inválida'),
   signed_amount: z.coerce
@@ -29,6 +37,13 @@ const baseTransactionSchema = {
     .optional()
     .nullable(),
   source: z.string().max(50).optional().nullable().default('MANUAL'),
+  loan_type: z.enum(['NONE', 'SELF', 'EXTERNAL']).default('NONE'),
+  lender_name: z.string().max(200).optional().nullable(),
+  repaid_amount: z.coerce
+    .number()
+    .min(0, 'El monto pagado no puede ser negativo')
+    .transform((val) => new Decimal(val).toDecimalPlaces(2).toNumber())
+    .default(0),
 };
 
 export const createTransactionSchema = z
@@ -74,6 +89,13 @@ export const updateTransactionSchema = z
       .optional()
       .nullable(),
     source: z.string().max(50).optional().nullable(),
+    loan_type: z.enum(['NONE', 'SELF', 'EXTERNAL']).optional(),
+    lender_name: z.string().max(200).optional().nullable(),
+    repaid_amount: z.coerce
+      .number()
+      .min(0, 'El monto pagado no puede ser negativo')
+      .transform((val) => new Decimal(val).toDecimalPlaces(2).toNumber())
+      .optional(),
   })
   .refine(
     (data) => {
