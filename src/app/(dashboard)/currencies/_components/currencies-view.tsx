@@ -200,22 +200,16 @@ function EmptyState() {
 
 interface CurrenciesViewProps {
   currencies: Currency[];
+  baseCurrencyCode: string;
 }
 
-export function CurrenciesView({ currencies }: CurrenciesViewProps) {
+export function CurrenciesView({ currencies, baseCurrencyCode }: CurrenciesViewProps) {
   const router = useRouter();
   const [isPending, setIsPending] = useState(false);
   const [toast, setToast] = useState<ToastState>(null);
 
-  // The preferred currency is the one with exchange_rate_to_preferred = 1
-  // or null (it IS the base, so no conversion needed)
-  const preferredCurrency =
-    currencies.find((c) => c.exchange_rate_to_preferred === 1) ??
-    currencies.find((c) => c.exchange_rate_to_preferred === null) ??
-    currencies[0] ??
-    null;
-
-  const preferredCode = preferredCurrency?.code ?? null;
+  const preferredCode = baseCurrencyCode;
+  const preferredCurrency = currencies.find((c) => c.code === preferredCode) ?? null;
 
   // Sort: preferred first, then alphabetical
   const sorted = [...currencies].sort((a, b) => {

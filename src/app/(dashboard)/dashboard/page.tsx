@@ -4,6 +4,7 @@ import { es } from 'date-fns/locale';
 import { SummaryCards, SummaryCardsSkeleton } from './_components/summary-cards';
 import { AccountsStrip, AccountsStripSkeleton } from './_components/accounts-strip';
 import { RecentTransactions, RecentTransactionsSkeleton } from './_components/recent-transactions';
+import { DebtSummary, DebtSummarySkeleton } from './_components/debt-summary';
 import { RefreshBalancesButton } from './_components/refresh-balances-button';
 import { PeriodSelector } from './_components/period-selector';
 
@@ -68,6 +69,11 @@ export default function DashboardPage({ searchParams }: DashboardProps) {
       {/* ── Bank accounts strip — streamed ── */}
       <Suspense fallback={<AccountsStripSkeleton />}>
         <AccountsStrip endDate={endDate} />
+      </Suspense>
+
+      {/* ── Debt summary — streamed (only renders when there are active loans) ── */}
+      <Suspense fallback={<DebtSummarySkeleton />}>
+        <DebtSummary />
       </Suspense>
 
       {/* ── Recent transactions — streamed ── */}

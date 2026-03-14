@@ -22,8 +22,8 @@ export const transactionRepository = {
       endDate?: string;
       categoryId?: string;
       accountId?: string;
-      kind?: Database['public']['Enums']['transaction_kind'];
-      status?: Database['public']['Enums']['transaction_status'];
+      kind?: Database['public']['Enums']['TransactionKind'];
+      status?: Database['public']['Enums']['TransactionStatus'];
       limit?: number;
       offset?: number;
     }
@@ -200,7 +200,7 @@ export const transactionRepository = {
       amount: number;
       occurred_at?: string;
       description?: string | null;
-      status?: Database['public']['Enums']['transaction_status'];
+      status?: Database['public']['Enums']['TransactionStatus'];
     }
   ): Promise<TransactionWithRelations> {
     const supabase = await createClient();
@@ -287,6 +287,30 @@ export const transactionRepository = {
   },
 
   /**
+   * Deletes both legs of a transfer and the transfer record itself.
+   * Scoped to userId to prevent cross-user deletion.
+   */
+  async deleteTransferLegs(transferId: string, userId: string): Promise<void> {
+    const supabase = await createClient();
+
+    const { error: txError } = await supabase
+      .from('transactions')
+      .delete()
+      .eq('transfer_id', transferId)
+      .eq('user_id', userId);
+
+    if (txError) throw txError;
+
+    const { error: trError } = await supabase
+      .from('transfers')
+      .delete()
+      .eq('id', transferId)
+      .eq('user_id', userId);
+
+    if (trError) throw trError;
+  },
+
+  /**
    * Creates a transfer between two accounts atomically.
    * Uses explicit id (crypto.randomUUID()) to avoid 23502 NOT NULL on transfers.id.
    * Rollback on any failure to prevent orphaned data.
@@ -300,7 +324,7 @@ export const transactionRepository = {
     sourceCurrencyCode: string;
     description: string | null;
     occurredAt: string;
-    status: Database['public']['Enums']['transaction_status'];
+    status: Database['public']['Enums']['TransactionStatus'];
   }): Promise<{ debitTx: TransactionWithRelations; creditTx: TransactionWithRelations }> {
     const supabase = await createClient();
     const {
@@ -442,6 +466,61 @@ export const transactionRepository = {
     return map;
   },
 
+  /**
+   * Aggregates all active loan transactions (loan_type != 'NONE') for a user.
+   * Returns the total outstanding debt = sum(|signed_amount|) - sum(repaid_amount),
+   * broken down per loan entry for display purposes.
+   * Only POSTED transactions are included; VOID ones are ignored.
+   */
+  async getLoanSummary(userId: string): Promise<{
+    totalPending: number;
+    items: Array<{
+      id: string;
+      loan_type: string;
+      lender_name: string | null;
+      original_amount: number;
+      repaid_amount: number;
+      pending: number;
+      occurred_at: string;
+      description: string | null;
+    }>;
+  }> {
+    const supabase = await createClient();
+
+    const { data, error } = await supabase
+      .from('transactions')
+      .select('id, loan_type, lender_name, signed_amount, repaid_amount, occurred_at, description')
+      .eq('user_id', userId)
+      .eq('status', 'POSTED')
+      .neq('loan_type', 'NONE')
+      .order('occurred_at', { ascending: false });
+
+    if (error) throw error;
+
+    let totalPending = new Decimal(0);
+    const items = (data ?? []).map((t) => {
+      const original = Math.abs(Number(t.signed_amount));
+      const repaid = Number(t.repaid_amount ?? 0);
+      const pending = new Decimal(original).minus(repaid).toDecimalPlaces(2).toNumber();
+      if (pending > 0) totalPending = totalPending.plus(pending);
+      return {
+        id: t.id,
+        loan_type: t.loan_type,
+        lender_name: t.lender_name,
+        original_amount: original,
+        repaid_amount: repaid,
+        pending,
+        occurred_at: t.occurred_at,
+        description: t.description,
+      };
+    });
+
+    return {
+      totalPending: totalPending.toDecimalPlaces(2).toNumber(),
+      items,
+    };
+  },
+
   async getSummary(
     userId: string,
     startDate: string,
@@ -475,7 +554,7 @@ export const transactionRepository = {
 
     const { data, error } = await supabase
       .from('transactions')
-      .select('signed_amount, kind, account_id, occurred_at, accounts!inner(currency_code, account_types!inner(balance_nature))')
+      .select('signed_amount, kind, account_id, occurred_at, accounts!inner(currency_code, account_types!inner(balance_nature)), categories(name)')
       .eq('user_id', userId)
       .eq('status', 'POSTED')
       .gte('occurred_at', startStr)
@@ -499,6 +578,7 @@ export const transactionRepository = {
       const account = t.accounts as any;
       const balanceNature = account?.account_types?.balance_nature;
       const currencyCode: string = account?.currency_code ?? '';
+      const categoryName = (t as any).categories?.name;
 
       // Convert to preferred currency: amount × (rateDest / rateOrigin)
       let amount = rawAmount;
@@ -512,8 +592,10 @@ export const transactionRepository = {
         }
       }
 
-      // ASSET: positive = income, negative = expense
-      // LIABILITY: positive = charge (expense), negative = payment (reduces debt, not income)
+      // Sign convention for all account types:
+      // ASSET:     positive = income,  negative = expense
+      // LIABILITY: negative = charge/expense (increases debt, balance goes more negative)
+      //            positive = payment/income  (reduces debt, balance moves toward 0)
       if (balanceNature === 'ASSET') {
         if (amount > 0) {
           totalIncome = totalIncome.plus(amount);
@@ -521,8 +603,12 @@ export const transactionRepository = {
           totalExpense = totalExpense.plus(Math.abs(amount));
         }
       } else if (balanceNature === 'LIABILITY') {
-        if (amount > 0) {
-          totalExpense = totalExpense.plus(amount);
+        // Skip credit card payment receipts (to avoid double-counting).
+        // The payment is already captured as an expense in the ASSET (savings) account.
+        if (categoryName === 'Pagos Tarjeta') return;
+
+        if (amount < 0) {
+          totalExpense = totalExpense.plus(Math.abs(amount));
         }
       }
     });

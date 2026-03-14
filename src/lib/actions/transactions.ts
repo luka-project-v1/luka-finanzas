@@ -8,6 +8,8 @@ import { accountRepository } from '@/lib/repositories/account-repository';
 import { createTransactionSchema, updateTransactionSchema } from '@/lib/validations/transaction-schema';
 import { createClient } from '@/lib/supabase/server';
 import { convertToBase } from '@/lib/utils/currency';
+import { getBaseCurrency } from '@/lib/actions/preferences';
+import { syncSystemCategories } from '@/lib/actions/categories';
 import type { Database } from '@/lib/types/database.types';
 import type { TransactionWithRelations } from '@/lib/repositories/transaction-repository';
 
@@ -47,8 +49,8 @@ export async function getTransactions(filters?: {
   endDate?: string;
   categoryId?: string;
   accountId?: string;
-  kind?: Database['public']['Enums']['transaction_kind'];
-  status?: Database['public']['Enums']['transaction_status'];
+  kind?: Database['public']['Enums']['TransactionKind'];
+  status?: Database['public']['Enums']['TransactionStatus'];
   page?: number;
   limit?: number;
 }): Promise<
@@ -140,18 +142,10 @@ export async function getTransactionDetail(id: string): Promise<
     const rateByCode = await getCurrencyRateMap(user.id);
     const rateRecord: Record<string, number> = Object.fromEntries(rateByCode);
 
-    const supabase = await createClient();
-    type CurrencyRow = { code: string; exchange_rate_to_preferred: number | null };
-    const { data: currencies } = await (supabase as any)
-      .from('currencies')
-      .select('code, exchange_rate_to_preferred')
-      .eq('user_id', user.id);
+    const baseCurrency = await getBaseCurrency(user.id);
+    const preferredCode = baseCurrency.code;
 
-    const preferredCurrency =
-      (currencies as CurrencyRow[] | null)?.find((c) => c.exchange_rate_to_preferred === 1) ??
-      (currencies as CurrencyRow[] | null)?.find((c) => c.exchange_rate_to_preferred === null) ??
-      (currencies as CurrencyRow[] | null)?.[0];
-    const preferredCode = preferredCurrency?.code ?? 'COP';
+    const supabase = await createClient();
 
     let transferInfo: TransferDetailInfo | undefined;
     if (transaction.transfer_id) {
@@ -162,7 +156,8 @@ export async function getTransactionDetail(id: string): Promise<
           .from('accounts')
           .select('id, name, currency_code')
           .in('id', [info.fromAccount.id, info.toAccount.id]);
-        const accMap = new Map((accounts ?? []).map((a: { id: string; name: string; currency_code: string }) => [a.id, a]));
+        type AccEntry = { id: string; name: string; currency_code: string };
+        const accMap = new Map<string, AccEntry>((accounts ?? []).map((a: AccEntry) => [a.id, a]));
         const fromAcc = accMap.get(info.fromAccount.id);
         const toAcc = accMap.get(info.toAccount.id);
         if (fromAcc && toAcc) {
@@ -241,9 +236,26 @@ export async function createTransaction(data: unknown): Promise<ActionResult<Tra
     const { destination_account_id: _, ...rest } = validated;
     const occurredAt = rest.occurred_at;
 
+    // Sign enforcement for CREDIT_CARD (LIABILITY) accounts:
+    // Convention: negative signed_amount = expense/charge (increases debt, balance goes negative)
+    //             positive signed_amount = income/payment (reduces debt, balance moves toward 0)
+    // For ASSET accounts the same convention holds (positive = income, negative = expense).
+    // The client form already sends the correct sign; this guard makes it explicit and
+    // prevents accidental sign inversion when called programmatically.
+    let enforcedSignedAmount = rest.signed_amount;
+    if (rest.kind !== 'TRANSFER' && rest.kind !== 'ADJUSTMENT') {
+      const txAccount = await accountRepository.getById(rest.account_id, user.id);
+      if (txAccount?.account_types?.balance_nature === 'LIABILITY') {
+        // Expense (charge): must be negative → balance decreases (more negative = more debt)
+        // Income/payment:   must be positive → balance increases (less negative = less debt)
+        // The sign is determined by the caller; we only validate it is not zero (already done by schema).
+        enforcedSignedAmount = rest.signed_amount;
+      }
+    }
+
     const transaction = await transactionRepository.create({
       account_id: rest.account_id,
-      signed_amount: rest.signed_amount,
+      signed_amount: enforcedSignedAmount,
       occurred_at: occurredAt,
       user_id: user.id,
       kind: rest.kind ?? 'NORMAL',
@@ -252,6 +264,9 @@ export async function createTransaction(data: unknown): Promise<ActionResult<Tra
       description: rest.description ?? null,
       posted_at: rest.posted_at ?? null,
       source: rest.source ?? 'MANUAL',
+      loan_type: rest.loan_type ?? 'NONE',
+      lender_name: rest.lender_name ?? null,
+      repaid_amount: rest.repaid_amount ?? 0,
     });
 
     revalidatePath('/dashboard');
@@ -304,7 +319,9 @@ export async function updateTransaction(
     const lastAdjMap = await transactionRepository.getLastAdjustmentPerAccount(user.id, Array.from(new Set(accountIdsToCheck)));
 
     const snapshotOccurredAt = snapshot.occurred_at ?? '';
-    const isHistoric = accountIdsToCheck.some((accId) => {
+    // ADJUSTMENT transactions are the anchor themselves — never treat them as historic
+    const isAdjustment = snapshot.kind === 'ADJUSTMENT';
+    const isHistoric = !isAdjustment && accountIdsToCheck.some((accId) => {
       const adj = lastAdjMap.get(accId);
       return adj && snapshotOccurredAt && snapshotOccurredAt <= adj.date;
     });
@@ -387,6 +404,9 @@ export async function updateTransaction(
             status: finalStatus,
             description: validated.description ?? snapshot.description ?? null,
             category_id: validated.category_id !== undefined ? validated.category_id : snapshot.category_id,
+            loan_type: validated.loan_type ?? snapshot.loan_type ?? 'NONE',
+            lender_name: validated.lender_name !== undefined ? validated.lender_name : snapshot.lender_name,
+            repaid_amount: validated.repaid_amount !== undefined ? validated.repaid_amount : Number(snapshot.repaid_amount ?? 0),
           };
       if (!isHistoric && finalAmount != null) {
         updates.signed_amount = finalAmount;
@@ -422,10 +442,52 @@ export async function deleteTransaction(id: string): Promise<ActionResult<void>>
       return { success: false, error: 'No autorizado' };
     }
 
-    await transactionRepository.delete(id, user.id);
+    const transaction = await transactionRepository.getById(id, user.id);
+    if (!transaction) {
+      return { success: false, error: 'Transacción no encontrada' };
+    }
+
+    // Anchor guard: block deletion of historical transactions
+    const accountIdsToCheck: string[] = transaction.account_id ? [transaction.account_id] : [];
+    if (transaction.transfer_id) {
+      const transferMap = await transactionRepository.getTransfersWithAccounts(user.id, [transaction.transfer_id]);
+      const info = transferMap.get(transaction.transfer_id);
+      if (info) {
+        accountIdsToCheck.push(info.fromAccount.id, info.toAccount.id);
+      }
+    }
+
+    if (accountIdsToCheck.length > 0) {
+      const lastAdjMap = await transactionRepository.getLastAdjustmentPerAccount(
+        user.id,
+        Array.from(new Set(accountIdsToCheck)),
+      );
+      const snapshotOccurredAt = transaction.occurred_at ?? '';
+      const isHistoric = accountIdsToCheck.some((accId) => {
+        const adj = lastAdjMap.get(accId);
+        return (
+          adj &&
+          snapshotOccurredAt &&
+          (transaction.kind === 'ADJUSTMENT' ? transaction.id !== adj.id : snapshotOccurredAt <= adj.date)
+        );
+      });
+      if (isHistoric) {
+        return {
+          success: false,
+          error: 'No puedes eliminar una transacción histórica (anterior a un ajuste).',
+        };
+      }
+    }
+
+    if (transaction.transfer_id && transaction.kind === 'TRANSFER') {
+      await transactionRepository.deleteTransferLegs(transaction.transfer_id, user.id);
+    } else {
+      await transactionRepository.delete(id, user.id);
+    }
 
     revalidatePath('/dashboard');
     revalidatePath('/transactions');
+    revalidatePath('/accounts');
 
     return { success: true, data: undefined };
   } catch (error) {
@@ -452,34 +514,23 @@ export async function getTransactionsSummary(
       return { success: false, error: 'No autorizado' };
     }
 
+    const baseCurrency = await getBaseCurrency(user.id);
+    const preferredCode = baseCurrency.code;
+    const preferredSymbol = baseCurrency.symbol;
+
     // Fetch user currencies to build the exchange-rate map.
-    // Cast to `any` because the `currencies` table is not part of the generated
-    // Supabase database types (it lives in a separate schema migration).
     const supabase = await createClient();
-    type CurrencyRow = {
-      code: string;
-      symbol: string;
-      exchange_rate_to_preferred: number | null;
-    };
+    type CurrencyRow = { code: string; exchange_rate_to_preferred: number | null };
     const { data: currenciesRaw, error: currError } = await (supabase as any)
       .from('currencies')
-      .select('code, symbol, exchange_rate_to_preferred')
+      .select('code, exchange_rate_to_preferred')
       .eq('user_id', user.id);
 
     if (currError) throw currError;
 
     const currencies = (currenciesRaw ?? []) as CurrencyRow[];
 
-    // Determine the preferred currency (rate === 1 wins, then null fallback, then first)
-    const preferredCurrency =
-      currencies.find((c) => c.exchange_rate_to_preferred === 1) ??
-      currencies.find((c) => c.exchange_rate_to_preferred === null) ??
-      currencies[0];
-
-    const preferredCode = preferredCurrency?.code ?? 'COP';
-    const preferredSymbol = preferredCurrency?.symbol ?? '$';
-
-    // Build a map: currencyCode → rate_to_preferred
+    // Build a map: currencyCode → rate (units per 1 USD from API)
     const rateByCode = new Map<string, number>();
     for (const c of currencies) {
       const rate = c.exchange_rate_to_preferred;
@@ -550,5 +601,112 @@ export async function getAccountTransactions(
   } catch (error) {
     console.error('Error fetching account transactions:', error);
     return { success: false, error: 'Error al obtener las transacciones de la cuenta' };
+  }
+}
+
+export type LoanSummaryItem = {
+  id: string;
+  loan_type: string;
+  lender_name: string | null;
+  original_amount: number;
+  repaid_amount: number;
+  pending: number;
+  occurred_at: string;
+  description: string | null;
+};
+
+export async function getDebtSummary(): Promise<
+  ActionResult<{
+    totalPending: number;
+    items: LoanSummaryItem[];
+  }>
+> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return { success: false, error: 'No autorizado' };
+    }
+    const summary = await transactionRepository.getLoanSummary(user.id);
+    return { success: true, data: summary };
+  } catch (error) {
+    console.error('Error fetching debt summary:', error);
+    return { success: false, error: 'Error al obtener el resumen de deudas' };
+  }
+}
+
+/**
+ * Registers a credit card payment as an expense:
+ * 1. Creates a NORMAL negative transaction on the savings account (expense).
+ * 2. Optionally creates a NORMAL positive transaction on the credit card (debt reduction).
+ *
+ * These are intentionally NOT linked as a Transfer so the savings-account leg
+ * appears as a true expense in the monthly summary. The CC leg is excluded from
+ * getSummary via the 'Pagos Tarjeta' category guard in the repository.
+ */
+export async function createCreditCardPayment(data: {
+  savingsAccountId: string;
+  creditCardAccountId?: string | null;
+  amount: number;
+  description?: string | null;
+  occurredAt: string;
+  status?: Database['public']['Enums']['TransactionStatus'];
+}): Promise<ActionResult<TransactionWithRelations>> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return { success: false, error: 'No autorizado' };
+    }
+
+    const { savingsAccountId, creditCardAccountId, amount, description, occurredAt, status = 'POSTED' } = data;
+
+    // Ensure system categories exist, then look up 'Pagos Tarjeta' id
+    await syncSystemCategories(user.id);
+    const supabase = await createClient();
+    const { data: paymentCat } = await supabase
+      .from('categories')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('name', 'Pagos Tarjeta')
+      .single();
+    const categoryId = paymentCat?.id ?? null;
+
+    // 1. Create expense on savings account (negative signed_amount)
+    const savingsTx = await transactionRepository.create({
+      user_id: user.id,
+      account_id: savingsAccountId,
+      signed_amount: -Math.abs(amount),
+      category_id: categoryId,
+      description: description ?? 'Pago Tarjeta de Crédito',
+      occurred_at: occurredAt,
+      kind: 'NORMAL',
+      status,
+      source: 'MANUAL',
+    });
+
+    // 2. Optionally create debt-reduction transaction on the credit card.
+    // Positive signed_amount on a LIABILITY account increases the balance (reduces debt).
+    // Convention: CC balance is negative when in debt (e.g. -5000 = owes 5000).
+    // A payment moves the balance toward 0, so signed_amount must be +amount.
+    if (creditCardAccountId) {
+      await transactionRepository.create({
+        user_id: user.id,
+        account_id: creditCardAccountId,
+        signed_amount: Math.abs(amount),
+        category_id: categoryId,
+        description: description ?? 'Abono Tarjeta de Crédito',
+        occurred_at: occurredAt,
+        kind: 'NORMAL',
+        status,
+        source: 'MANUAL',
+      });
+    }
+
+    revalidatePath('/dashboard');
+    revalidatePath('/transactions');
+
+    return { success: true, data: savingsTx };
+  } catch (error) {
+    console.error('Error creating credit card payment:', error);
+    return { success: false, error: 'Error al registrar el pago de tarjeta' };
   }
 }

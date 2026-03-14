@@ -10,13 +10,46 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "13.0.5"
+    PostgrestVersion: "14.1"
   }
   public: {
     Tables: {
+      _prisma_migrations: {
+        Row: {
+          applied_steps_count: number
+          checksum: string
+          finished_at: string | null
+          id: string
+          logs: string | null
+          migration_name: string
+          rolled_back_at: string | null
+          started_at: string
+        }
+        Insert: {
+          applied_steps_count?: number
+          checksum: string
+          finished_at?: string | null
+          id: string
+          logs?: string | null
+          migration_name: string
+          rolled_back_at?: string | null
+          started_at?: string
+        }
+        Update: {
+          applied_steps_count?: number
+          checksum?: string
+          finished_at?: string | null
+          id?: string
+          logs?: string | null
+          migration_name?: string
+          rolled_back_at?: string | null
+          started_at?: string
+        }
+        Relationships: []
+      }
       account_types: {
         Row: {
-          balance_nature: Database["public"]["Enums"]["balance_nature"]
+          balance_nature: Database["public"]["Enums"]["BalanceNature"]
           code: string
           created_at: string
           id: string
@@ -24,15 +57,15 @@ export type Database = {
           updated_at: string
         }
         Insert: {
-          balance_nature: Database["public"]["Enums"]["balance_nature"]
+          balance_nature: Database["public"]["Enums"]["BalanceNature"]
           code: string
           created_at?: string
-          id?: string
+          id: string
           name: string
           updated_at?: string
         }
         Update: {
-          balance_nature?: Database["public"]["Enums"]["balance_nature"]
+          balance_nature?: Database["public"]["Enums"]["BalanceNature"]
           code?: string
           created_at?: string
           id?: string
@@ -46,13 +79,13 @@ export type Database = {
           account_type_id: string
           closed_at: string | null
           created_at: string
-          currency_code: string
+          currency_code: Database["public"]["Enums"]["Currency"]
           external_id: string | null
           id: string
           institution_name: string | null
           name: string
           opened_at: string | null
-          status: Database["public"]["Enums"]["account_status"]
+          status: Database["public"]["Enums"]["AccountStatus"]
           updated_at: string
           user_id: string
         }
@@ -60,13 +93,13 @@ export type Database = {
           account_type_id: string
           closed_at?: string | null
           created_at?: string
-          currency_code: string
+          currency_code: Database["public"]["Enums"]["Currency"]
           external_id?: string | null
           id?: string
           institution_name?: string | null
           name: string
           opened_at?: string | null
-          status?: Database["public"]["Enums"]["account_status"]
+          status?: Database["public"]["Enums"]["AccountStatus"]
           updated_at?: string
           user_id: string
         }
@@ -74,13 +107,13 @@ export type Database = {
           account_type_id?: string
           closed_at?: string | null
           created_at?: string
-          currency_code?: string
+          currency_code?: Database["public"]["Enums"]["Currency"]
           external_id?: string | null
           id?: string
           institution_name?: string | null
           name?: string
           opened_at?: string | null
-          status?: Database["public"]["Enums"]["account_status"]
+          status?: Database["public"]["Enums"]["AccountStatus"]
           updated_at?: string
           user_id?: string
         }
@@ -107,7 +140,7 @@ export type Database = {
           bank_name: string | null
           created_at: string
           interest_rate_annual: number | null
-          kind: Database["public"]["Enums"]["bank_account_kind"]
+          kind: Database["public"]["Enums"]["BankAccountKind"]
           masked_number: string | null
           monthly_fee: number | null
           overdraft_limit: number | null
@@ -118,7 +151,7 @@ export type Database = {
           bank_name?: string | null
           created_at?: string
           interest_rate_annual?: number | null
-          kind: Database["public"]["Enums"]["bank_account_kind"]
+          kind: Database["public"]["Enums"]["BankAccountKind"]
           masked_number?: string | null
           monthly_fee?: number | null
           overdraft_limit?: number | null
@@ -129,7 +162,7 @@ export type Database = {
           bank_name?: string | null
           created_at?: string
           interest_rate_annual?: number | null
-          kind?: Database["public"]["Enums"]["bank_account_kind"]
+          kind?: Database["public"]["Enums"]["BankAccountKind"]
           masked_number?: string | null
           monthly_fee?: number | null
           overdraft_limit?: number | null
@@ -147,32 +180,44 @@ export type Database = {
       }
       categories: {
         Row: {
+          color: string | null
           created_at: string
+          icon: string | null
           id: string
+          is_system_category: boolean | null
           name: string
           parent_id: string | null
+          type: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
+          color?: string | null
           created_at?: string
+          icon?: string | null
           id?: string
+          is_system_category?: boolean | null
           name: string
           parent_id?: string | null
+          type?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
+          color?: string | null
           created_at?: string
+          icon?: string | null
           id?: string
+          is_system_category?: boolean | null
           name?: string
           parent_id?: string | null
+          type?: string | null
           updated_at?: string
           user_id?: string
         }
         Relationships: [
           {
-            foreignKeyName: "categories_parent_category_id_fkey"
+            foreignKeyName: "categories_parent_id_fkey"
             columns: ["parent_id"]
             isOneToOne: false
             referencedRelation: "categories"
@@ -193,7 +238,7 @@ export type Database = {
           bank_name: string | null
           billing_cycle_day: number | null
           created_at: string
-          credit_limit: number | null
+          credit_limit: number
           interest_rate_annual: number | null
           interest_rate_monthly: number | null
           issuer: string | null
@@ -209,7 +254,7 @@ export type Database = {
           bank_name?: string | null
           billing_cycle_day?: number | null
           created_at?: string
-          credit_limit?: number | null
+          credit_limit: number
           interest_rate_annual?: number | null
           interest_rate_monthly?: number | null
           issuer?: string | null
@@ -225,7 +270,7 @@ export type Database = {
           bank_name?: string | null
           billing_cycle_day?: number | null
           created_at?: string
-          credit_limit?: number | null
+          credit_limit?: number
           interest_rate_annual?: number | null
           interest_rate_monthly?: number | null
           issuer?: string | null
@@ -246,6 +291,36 @@ export type Database = {
           },
         ]
       }
+      currencies: {
+        Row: {
+          code: string
+          exchange_rate_to_preferred: number
+          id: string
+          name: string
+          symbol: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          code: string
+          exchange_rate_to_preferred: number
+          id?: string
+          name: string
+          symbol: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          code?: string
+          exchange_rate_to_preferred?: number
+          id?: string
+          name?: string
+          symbol?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       reconciliations: {
         Row: {
           account_id: string
@@ -264,7 +339,7 @@ export type Database = {
           created_at?: string
           delta: number
           entered_balance: number
-          id?: string
+          id: string
           note?: string | null
           occurred_at: string
           user_id: string
@@ -306,7 +381,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
-          id?: string
+          id: string
           name: string
           user_id: string
         }
@@ -364,13 +439,16 @@ export type Database = {
           created_at: string
           description: string | null
           id: string
-          kind: Database["public"]["Enums"]["transaction_kind"]
+          kind: Database["public"]["Enums"]["TransactionKind"]
+          lender_name: string | null
+          loan_type: string
           occurred_at: string
           posted_at: string | null
           reconciliation_id: string | null
+          repaid_amount: number
           signed_amount: number
           source: string | null
-          status: Database["public"]["Enums"]["transaction_status"]
+          status: Database["public"]["Enums"]["TransactionStatus"]
           transfer_id: string | null
           updated_at: string
           user_id: string
@@ -382,13 +460,16 @@ export type Database = {
           created_at?: string
           description?: string | null
           id?: string
-          kind?: Database["public"]["Enums"]["transaction_kind"]
+          kind?: Database["public"]["Enums"]["TransactionKind"]
+          lender_name?: string | null
+          loan_type?: string
           occurred_at: string
           posted_at?: string | null
           reconciliation_id?: string | null
+          repaid_amount?: number
           signed_amount: number
           source?: string | null
-          status?: Database["public"]["Enums"]["transaction_status"]
+          status?: Database["public"]["Enums"]["TransactionStatus"]
           transfer_id?: string | null
           updated_at?: string
           user_id: string
@@ -400,13 +481,16 @@ export type Database = {
           created_at?: string
           description?: string | null
           id?: string
-          kind?: Database["public"]["Enums"]["transaction_kind"]
+          kind?: Database["public"]["Enums"]["TransactionKind"]
+          lender_name?: string | null
+          loan_type?: string
           occurred_at?: string
           posted_at?: string | null
           reconciliation_id?: string | null
+          repaid_amount?: number
           signed_amount?: number
           source?: string | null
-          status?: Database["public"]["Enums"]["transaction_status"]
+          status?: Database["public"]["Enums"]["TransactionStatus"]
           transfer_id?: string | null
           updated_at?: string
           user_id?: string
@@ -453,12 +537,12 @@ export type Database = {
         Row: {
           amount: number
           created_at: string
-          currency_code: string
+          currency_code: Database["public"]["Enums"]["Currency"]
           from_account_id: string
           from_transaction_id: string | null
           id: string
           occurred_at: string
-          status: Database["public"]["Enums"]["transaction_status"]
+          status: Database["public"]["Enums"]["TransactionStatus"]
           to_account_id: string
           to_transaction_id: string | null
           updated_at: string
@@ -467,12 +551,12 @@ export type Database = {
         Insert: {
           amount: number
           created_at?: string
-          currency_code: string
+          currency_code: Database["public"]["Enums"]["Currency"]
           from_account_id: string
           from_transaction_id?: string | null
           id?: string
           occurred_at: string
-          status?: Database["public"]["Enums"]["transaction_status"]
+          status?: Database["public"]["Enums"]["TransactionStatus"]
           to_account_id: string
           to_transaction_id?: string | null
           updated_at?: string
@@ -481,12 +565,12 @@ export type Database = {
         Update: {
           amount?: number
           created_at?: string
-          currency_code?: string
+          currency_code?: Database["public"]["Enums"]["Currency"]
           from_account_id?: string
           from_transaction_id?: string | null
           id?: string
           occurred_at?: string
-          status?: Database["public"]["Enums"]["transaction_status"]
+          status?: Database["public"]["Enums"]["TransactionStatus"]
           to_account_id?: string
           to_transaction_id?: string | null
           updated_at?: string
@@ -503,7 +587,7 @@ export type Database = {
           {
             foreignKeyName: "transfers_from_transaction_id_fkey"
             columns: ["from_transaction_id"]
-            isOneToOne: true
+            isOneToOne: false
             referencedRelation: "transactions"
             referencedColumns: ["id"]
           },
@@ -517,7 +601,7 @@ export type Database = {
           {
             foreignKeyName: "transfers_to_transaction_id_fkey"
             columns: ["to_transaction_id"]
-            isOneToOne: true
+            isOneToOne: false
             referencedRelation: "transactions"
             referencedColumns: ["id"]
           },
@@ -562,27 +646,12 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      account_status: "ACTIVE" | "CLOSED"
-      balance_nature: "ASSET" | "LIABILITY"
-      bank_account_kind: "SAVINGS" | "CHECKING"
-      HistoryStatus: "EN_CURSO" | "FINALIZADA" | "MANTENIMIENTO" | "CANCELADA"
-      NotificationStatus:
-        | "PENDING"
-        | "PROCESSING"
-        | "DONE"
-        | "CANCELLED"
-        | "DEAD_LETTER"
-      PaymentMethod: "EFECTIVO" | "TARJETA" | "NEQUI" | "DAVIPLATA"
-      Role: "ADMIN" | "RECEPCIONISTA"
-      RoomStatus: "DISPONIBLE" | "OCUPADA" | "MANTENIMIENTO" | "LIMPIEZA"
-      ServiceType: "RATO" | "AMANECIDA" | "MANTENIMIENTO"
-      transaction_kind:
-        | "NORMAL"
-        | "TRANSFER"
-        | "ADJUSTMENT"
-        | "FEE"
-        | "INTEREST"
-      transaction_status: "PENDING" | "POSTED" | "VOID"
+      AccountStatus: "ACTIVE" | "CLOSED"
+      BalanceNature: "ASSET" | "LIABILITY"
+      BankAccountKind: "SAVINGS" | "CHECKING"
+      Currency: "USD" | "COP"
+      TransactionKind: "NORMAL" | "TRANSFER" | "ADJUSTMENT" | "FEE" | "INTEREST"
+      TransactionStatus: "PENDING" | "POSTED" | "VOID"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -710,23 +779,12 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      account_status: ["ACTIVE", "CLOSED"],
-      balance_nature: ["ASSET", "LIABILITY"],
-      bank_account_kind: ["SAVINGS", "CHECKING"],
-      HistoryStatus: ["EN_CURSO", "FINALIZADA", "MANTENIMIENTO", "CANCELADA"],
-      NotificationStatus: [
-        "PENDING",
-        "PROCESSING",
-        "DONE",
-        "CANCELLED",
-        "DEAD_LETTER",
-      ],
-      PaymentMethod: ["EFECTIVO", "TARJETA", "NEQUI", "DAVIPLATA"],
-      Role: ["ADMIN", "RECEPCIONISTA"],
-      RoomStatus: ["DISPONIBLE", "OCUPADA", "MANTENIMIENTO", "LIMPIEZA"],
-      ServiceType: ["RATO", "AMANECIDA", "MANTENIMIENTO"],
-      transaction_kind: ["NORMAL", "TRANSFER", "ADJUSTMENT", "FEE", "INTEREST"],
-      transaction_status: ["PENDING", "POSTED", "VOID"],
+      AccountStatus: ["ACTIVE", "CLOSED"],
+      BalanceNature: ["ASSET", "LIABILITY"],
+      BankAccountKind: ["SAVINGS", "CHECKING"],
+      Currency: ["USD", "COP"],
+      TransactionKind: ["NORMAL", "TRANSFER", "ADJUSTMENT", "FEE", "INTEREST"],
+      TransactionStatus: ["PENDING", "POSTED", "VOID"],
     },
   },
 } as const

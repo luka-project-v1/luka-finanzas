@@ -10,9 +10,11 @@ import {
   Pencil,
   CheckCircle,
   Loader2,
+  Trash2,
 } from 'lucide-react';
 import { Sheet } from '@/components/ui/sheet';
-import { getTransactionDetail, updateTransaction } from '@/lib/actions/transactions';
+import { Dialog } from '@/components/ui/dialog';
+import { getTransactionDetail, updateTransaction, deleteTransaction } from '@/lib/actions/transactions';
 import { formatCurrency } from '@/lib/utils/currency';
 import { formatDate } from '@/lib/utils/date';
 import { convertToBase } from '@/lib/utils/currency';
@@ -73,6 +75,8 @@ export function TransactionDetailSheet({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmingPayment, setConfirmingPayment] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [transactionToEdit, setTransactionToEdit] = useState<TransactionWithRelations | null>(null);
   const [transferInfoForEdit, setTransferInfoForEdit] = useState<Record<string, TransferInfo>>({});
@@ -172,6 +176,26 @@ export function TransactionDetailSheet({
     }
   }
 
+  async function handleConfirmDelete() {
+    if (!detail) return;
+    setDeleting(true);
+    setConfirmDeleteOpen(false);
+    try {
+      const result = await deleteTransaction(detail.transaction.id);
+      if (result.success) {
+        toast.success('Transacción eliminada');
+        clearTransactionId();
+        onSuccess?.();
+      } else {
+        toast.error((result as { success: false; error: string }).error);
+      }
+    } catch {
+      toast.error('Error al eliminar la transacción');
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   if (!open) return null;
 
   return (
@@ -195,10 +219,53 @@ export function TransactionDetailSheet({
                 detail.transaction.status === 'PENDING' ? handleConfirmPayment : undefined
               }
               confirmingPayment={confirmingPayment}
+              onDelete={() => setConfirmDeleteOpen(true)}
+              deleting={deleting}
             />
           ) : null}
         </div>
       </Sheet>
+
+      {/* ── Confirm Delete ── */}
+      <Dialog
+        open={confirmDeleteOpen}
+        onOpenChange={(open) => { if (!open) setConfirmDeleteOpen(false); }}
+        title="Eliminar transacción"
+        description="Esta acción es permanente y no se puede deshacer."
+        size="sm"
+      >
+        {detail && (
+          <div className="flex flex-col gap-3 pt-2">
+            <div className="rounded-[0.75rem] bg-neu-raised border border-neu px-4 py-3 shadow-soft-in text-sm text-white/70">
+              <p className="font-medium text-white/90 truncate">
+                {detail.transaction.description ?? detail.transaction.kind}
+              </p>
+              {detail.transaction.kind === 'TRANSFER' && (
+                <p className="text-xs text-neu-muted mt-0.5">
+                  Se eliminarán ambas piernas de la transferencia.
+                </p>
+              )}
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteOpen(false)}
+                className="flex-1 neu-btn text-sm text-white/50 hover:text-white/80 border border-neu bg-neu-raised justify-center"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="flex-1 neu-btn justify-center text-sm bg-luka-expense/15 border border-luka-expense/30 text-luka-expense hover:bg-luka-expense/25 transition-colors"
+              >
+                <Trash2 className="w-4 h-4" strokeWidth={2} />
+                Eliminar
+              </button>
+            </div>
+          </div>
+        )}
+      </Dialog>
 
       <CreateTransactionDialog
         open={editDialogOpen}
@@ -229,6 +296,8 @@ interface TransactionDetailContentProps {
   onEdit: () => void;
   onConfirmPayment?: () => void;
   confirmingPayment: boolean;
+  onDelete: () => void;
+  deleting: boolean;
 }
 
 function TransactionDetailContent({
@@ -236,6 +305,8 @@ function TransactionDetailContent({
   onEdit,
   onConfirmPayment,
   confirmingPayment,
+  onDelete,
+  deleting,
 }: TransactionDetailContentProps) {
   const { transaction, transferInfo, rateByCode, preferredCode } = detail;
   const signed = Number(transaction.signed_amount ?? 0);
@@ -248,15 +319,12 @@ function TransactionDetailContent({
   const currencyCode = account?.currency_code ?? 'COP';
   const amountAbs = Math.abs(signed);
 
-  const amountColor = isPending
-    ? 'text-[#D97757]'
-    : isNeutral
-      ? 'text-white/70'
-      : isIncome
-        ? 'text-luka-income'
-        : 'text-luka-expense';
+  let amountColor = isIncome ? 'text-luka-income' : 'text-luka-expense';
+  if (isNeutral) amountColor = 'text-white/70';
+  if (isPending) amountColor = 'text-[#D97757]';
 
-  const amountPrefix = isNeutral ? '' : isIncome ? '+' : '−';
+  let amountPrefix = '';
+  if (!isNeutral) amountPrefix = isIncome ? '+' : '−';
 
   const needsConversion =
     transferInfo &&
@@ -409,7 +477,7 @@ function TransactionDetailContent({
           <button
             type="button"
             onClick={onConfirmPayment}
-            disabled={confirmingPayment}
+            disabled={confirmingPayment || deleting}
             className="neu-btn neu-btn-primary w-full justify-center text-sm"
           >
             {confirmingPayment ? (
@@ -423,10 +491,24 @@ function TransactionDetailContent({
         <button
           type="button"
           onClick={onEdit}
-          className="neu-btn w-full justify-center text-sm text-white/50 hover:text-white/80 border border-neu bg-neu-raised"
+          disabled={deleting}
+          className="neu-btn w-full justify-center text-sm text-white/50 hover:text-white/80 border border-neu bg-neu-raised disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <Pencil className="w-4 h-4" />
           Editar
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          disabled={deleting}
+          className="neu-btn w-full justify-center text-sm bg-luka-expense/10 border border-luka-expense/25 text-luka-expense/80 hover:bg-luka-expense/20 hover:text-luka-expense transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {deleting ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Trash2 className="w-4 h-4" strokeWidth={2} />
+          )}
+          {deleting ? 'Eliminando…' : 'Eliminar'}
         </button>
       </div>
     </div>

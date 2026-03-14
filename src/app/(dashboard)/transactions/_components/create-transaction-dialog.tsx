@@ -4,11 +4,12 @@ import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Loader2, TrendingUp, TrendingDown, ArrowLeftRight, ArrowRight, X } from 'lucide-react';
+import { Loader2, TrendingUp, TrendingDown, ArrowLeftRight, ArrowRight, X, HandCoins, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { Dialog } from '@/components/ui/dialog';
 import { FieldLabel, FieldError, Input, Select } from '@/components/ui/form-fields';
-import { createTransaction, updateTransaction } from '@/lib/actions/transactions';
+import { CategorySelect } from '@/components/ui/category-select';
+import { createTransaction, updateTransaction, createCreditCardPayment } from '@/lib/actions/transactions';
 import type { CreateTransactionInput, UpdateTransactionInput } from '@/lib/validations/transaction-schema';
 import { cn } from '@/lib/utils/cn';
 import type { AccountWithDetails } from '@/lib/repositories/account-repository';
@@ -42,6 +43,8 @@ const formSchema = z
       .transform((d) => d.toISOString()),
     kind: z.enum(['NORMAL', 'TRANSFER', 'ADJUSTMENT', 'FEE', 'INTEREST']),
     status: z.enum(['PENDING', 'POSTED', 'VOID']),
+    loan_type: z.enum(['NONE', 'SELF', 'EXTERNAL']).default('NONE'),
+    lender_name: z.string().max(200).optional(),
   })
   .refine(
     (data) => {
@@ -55,6 +58,16 @@ const formSchema = z
     {
       message: 'Selecciona una cuenta de destino diferente a la de origen',
       path: ['destination_account_id'],
+    }
+  )
+  .refine(
+    (data) => {
+      if (data.loan_type !== 'NONE' && !data.lender_name?.trim()) return false;
+      return true;
+    },
+    {
+      message: 'Indica el nombre del prestamista o la meta asociada',
+      path: ['lender_name'],
     }
   );
 
@@ -93,6 +106,7 @@ export function CreateTransactionDialog({
   transferInfo = EMPTY_TRANSFER_INFO,
 }: CreateTransactionDialogProps) {
   const [serverError, setServerError] = useState<string | null>(null);
+  const [debtSectionOpen, setDebtSectionOpen] = useState(false);
   const isEditMode = !!initialData;
 
   // Default occurred_at = now (datetime-local format: YYYY-MM-DDTHH:mm)
@@ -113,6 +127,8 @@ export function CreateTransactionDialog({
       occurred_at: defaultOccurredAt,
       kind: 'NORMAL',
       status: 'POSTED',
+      loan_type: 'NONE',
+      lender_name: '',
     },
   });
 
@@ -126,8 +142,16 @@ export function CreateTransactionDialog({
     reset,
   } = form;
 
-  const selectedType = watch('type');
   const selectedAccountId = watch('account_id');
+  const selectedCategoryId = watch('category_id');
+  const selectedLoanType = watch('loan_type');
+  const selectedKind = watch('kind');
+
+  const selectedAccount = accounts.find((a) => a.id === selectedAccountId);
+  const selectedIsCreditCard = selectedAccount?.account_types?.code === 'CREDIT_CARD';
+
+  // Check if selected category is "Pagos Tarjeta"
+  const isPaymentCategory = categories.find(c => c.id === selectedCategoryId)?.name === 'Pagos Tarjeta';
 
   // Mode: expense | income | transfer (Traspaso)
   const [mode, setMode] = useState<TransactionMode>('expense');
@@ -138,6 +162,26 @@ export function CreateTransactionDialog({
     setValue('kind', isTransfer ? 'TRANSFER' : 'NORMAL');
     if (!isTransfer) setValue('destination_account_id', '');
   }, [isTransfer, setValue]);
+
+  // Reset kind to NORMAL when a credit card is selected (ADJUSTMENT is not valid for credit cards)
+  useEffect(() => {
+    if (selectedIsCreditCard && selectedKind === 'ADJUSTMENT') {
+      setValue('kind', 'NORMAL');
+    }
+  }, [selectedIsCreditCard, selectedKind, setValue]);
+
+  // Clear "Pagos Tarjeta" selection and reset debt fields when switching away from expense mode
+  useEffect(() => {
+    if (mode !== 'expense') {
+      const currentCategory = categories.find((c) => c.id === selectedCategoryId);
+      if (currentCategory?.name === 'Pagos Tarjeta') {
+        setValue('category_id', '');
+      }
+      setValue('loan_type', 'NONE');
+      setValue('lender_name', '');
+      setDebtSectionOpen(false);
+    }
+  }, [mode, categories, selectedCategoryId, setValue]);
 
   // Reset mode when dialog opens; when edit mode, populate from initialData
   useEffect(() => {
@@ -158,6 +202,10 @@ export function CreateTransactionDialog({
       setValue('occurred_at', initialData.occurred_at ? toDatetimeLocal(initialData.occurred_at) : defaultOccurredAt);
       setValue('kind', initialData.kind ?? 'NORMAL');
       setValue('status', initialData.status ?? 'POSTED');
+      const txLoanType = (initialData.loan_type ?? 'NONE') as 'NONE' | 'SELF' | 'EXTERNAL';
+      setValue('loan_type', txLoanType);
+      setValue('lender_name', initialData.lender_name ?? '');
+      if (txLoanType !== 'NONE') setDebtSectionOpen(true);
       if (initialData.kind === 'TRANSFER' && initialData.transfer_id && transferInfo[initialData.transfer_id]) {
         const info = transferInfo[initialData.transfer_id];
         // Always use canonical from→to: Desde=from, Hacia=to
@@ -180,6 +228,7 @@ export function CreateTransactionDialog({
 
   function handleClose() {
     setMode('expense');
+    setDebtSectionOpen(false);
     reset();
     setServerError(null);
     onOpenChange(false);
@@ -199,6 +248,8 @@ export function CreateTransactionDialog({
         status: values.status,
         description: values.description || null,
         category_id: isTransfer ? null : (values.category_id || null),
+        loan_type: values.loan_type,
+        lender_name: values.loan_type !== 'NONE' ? (values.lender_name || null) : null,
       };
       if (isTransfer) {
         payload.account_id = values.account_id;
@@ -260,10 +311,25 @@ export function CreateTransactionDialog({
         kind: values.kind,
         status: values.status,
         source: 'MANUAL',
+        loan_type: values.loan_type,
+        lender_name: values.loan_type !== 'NONE' ? (values.lender_name || null) : null,
+        repaid_amount: 0,
       };
     }
 
-    const result = await createTransaction(payload);
+    let result;
+    if (!isTransfer && isPaymentCategory) {
+      result = await createCreditCardPayment({
+        savingsAccountId: values.account_id,
+        creditCardAccountId: values.destination_account_id || null,
+        amount: rawAmount,
+        description: values.description || null,
+        occurredAt,
+        status: values.status,
+      });
+    } else {
+      result = await createTransaction(payload);
+    }
 
     if (result.success) {
       reset();
@@ -293,6 +359,17 @@ export function CreateTransactionDialog({
 
   const activeAccounts = accounts.filter((a) => a.status === 'ACTIVE');
   const destinationAccountOptions = activeAccounts.filter((a) => a.id !== selectedAccountId);
+
+  // Amount sign indicator — resolved without nested ternaries
+  let amountSymbolColor = 'text-luka-expense';
+  let amountSignPrefix = '−';
+  if (isTransfer) {
+    amountSymbolColor = 'text-luka-info';
+    amountSignPrefix = '';
+  } else if (mode === 'income') {
+    amountSymbolColor = 'text-luka-income';
+    amountSignPrefix = '+';
+  }
 
   return (
     <Dialog
@@ -384,9 +461,9 @@ export function CreateTransactionDialog({
             <div className="relative">
               <span className={cn(
                 'absolute left-4 top-1/2 -translate-y-1/2 text-sm font-bold',
-                isTransfer ? 'text-luka-info' : mode === 'income' ? 'text-luka-income' : 'text-luka-expense',
+                amountSymbolColor,
               )}>
-                {isTransfer ? '' : mode === 'income' ? '+' : '−'}
+                {amountSignPrefix}
               </span>
               <Input
                 type="number"
@@ -464,17 +541,35 @@ export function CreateTransactionDialog({
           {/* Category + Date side by side (Category hidden for TRANSFER) */}
           <div className={cn('grid gap-4', isTransfer ? 'grid-cols-1' : 'grid-cols-2')}>
             {!isTransfer && (
-              <div>
-                <FieldLabel>Categoría</FieldLabel>
-                <Select {...register('category_id')}>
-                  <option value="">Sin categoría</option>
-                  {categories.map((cat) => (
-                    <option key={cat.id} value={cat.id}>
-                      {cat.name}
-                    </option>
-                  ))}
-                </Select>
-                <FieldError message={errors.category_id?.message} />
+              <div className="space-y-4">
+                <div>
+                  <FieldLabel>Categoría</FieldLabel>
+                  <CategorySelect
+                    categories={categories}
+                    value={selectedCategoryId ?? ''}
+                    onChange={(id) => setValue('category_id', id, { shouldValidate: true })}
+                    isExpense={mode === 'expense'}
+                  />
+                  <FieldError message={errors.category_id?.message} />
+                </div>
+                
+                {/* Credit Card payment selector (appears when Pagos Tarjeta category is selected) */}
+                {isPaymentCategory && (
+                  <div className="pt-2 border-t border-white/5 animate-in fade-in slide-in-from-top-1">
+                    <FieldLabel>Tarjeta a pagar (Opcional)</FieldLabel>
+                    <Select {...register('destination_account_id')}>
+                      <option value="">No registrar en TC</option>
+                      {activeAccounts
+                        .filter(a => a.account_types.code === 'CREDIT_CARD')
+                        .map((acc) => (
+                          <option key={acc.id} value={acc.id}>
+                            {acc.name} ({acc.currency_code})
+                          </option>
+                        ))}
+                    </Select>
+                    <FieldError message={errors.destination_account_id?.message} />
+                  </div>
+                )}
               </div>
             )}
             <div>
@@ -493,7 +588,9 @@ export function CreateTransactionDialog({
                   <option value="NORMAL">Normal</option>
                   <option value="FEE">Comisión</option>
                   <option value="INTEREST">Interés</option>
-                  <option value="ADJUSTMENT">Ajuste</option>
+                  {!selectedIsCreditCard && (
+                    <option value="ADJUSTMENT">Ajuste</option>
+                  )}
                 </Select>
               </div>
             )}
@@ -508,6 +605,106 @@ export function CreateTransactionDialog({
           </div>
         </div>
 
+        {/* ── Debt Management section (expenses only) ── */}
+        {mode === 'expense' && (
+          <div className="mt-5 border border-neu rounded-[0.875rem] overflow-hidden">
+            <button
+              type="button"
+              onClick={() => {
+                const next = !debtSectionOpen;
+                setDebtSectionOpen(next);
+                if (!next) {
+                  setValue('loan_type', 'NONE');
+                  setValue('lender_name', '');
+                }
+              }}
+              className="flex items-center justify-between w-full px-4 py-3 bg-neu-raised hover:bg-neu-raised/80 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <HandCoins className="w-4 h-4 text-luka-warning shrink-0" strokeWidth={2} />
+                <span className="text-sm font-medium text-white/70">Gestión de Deuda</span>
+                {selectedLoanType !== 'NONE' && (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-luka-warning/15 text-luka-warning border border-luka-warning/25">
+                    {selectedLoanType === 'SELF' ? 'Auto-préstamo' : 'Externo'}
+                  </span>
+                )}
+              </div>
+              <ChevronDown
+                className={cn(
+                  'w-4 h-4 text-neu-muted transition-transform duration-200',
+                  debtSectionOpen && 'rotate-180',
+                )}
+                strokeWidth={2}
+              />
+            </button>
+
+            {debtSectionOpen && (
+              <div className="px-4 pb-4 pt-3 space-y-4 border-t border-neu animate-in fade-in slide-in-from-top-1 duration-150">
+                {/* Loan type toggle */}
+                <div>
+                  <FieldLabel>¿Es un préstamo / auto-préstamo?</FieldLabel>
+                  <div className="grid grid-cols-3 gap-2 mt-1">
+                    {(['NONE', 'SELF', 'EXTERNAL'] as const).map((lt) => (
+                      <button
+                        key={lt}
+                        type="button"
+                        onClick={() => {
+                          setValue('loan_type', lt, { shouldValidate: true });
+                          if (lt === 'NONE') setValue('lender_name', '');
+                        }}
+                        className={cn(
+                          'rounded-[0.75rem] px-2 py-2 text-xs font-semibold border transition-all duration-150',
+                          selectedLoanType === lt
+                            ? 'bg-luka-warning/15 border-luka-warning/30 text-luka-warning shadow-soft-in'
+                            : 'bg-neu-raised border-neu text-white/40 shadow-soft-out hover:text-white/60',
+                        )}
+                      >
+                        {lt === 'NONE' ? 'Ninguno' : lt === 'SELF' ? 'Auto-préstamo' : 'Externo'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* SELF: goal/purpose name */}
+                {selectedLoanType === 'SELF' && (
+                  <div className="animate-in fade-in slide-in-from-top-1 duration-150">
+                    <FieldLabel required>Meta o propósito</FieldLabel>
+                    <Input
+                      placeholder="Ej: Fondo de emergencia, Vacaciones…"
+                      autoComplete="off"
+                      {...register('lender_name')}
+                    />
+                    <p className="mt-1 text-[11px] text-neu-muted">
+                      Nombra la meta a la que destinas este dinero. Podrás vincularlo a Metas cuando esa función esté disponible.
+                    </p>
+                    <FieldError message={errors.lender_name?.message} />
+                  </div>
+                )}
+
+                {/* EXTERNAL: creditor/lender name */}
+                {selectedLoanType === 'EXTERNAL' && (
+                  <div className="animate-in fade-in slide-in-from-top-1 duration-150">
+                    <FieldLabel required>Nombre del prestamista</FieldLabel>
+                    <Input
+                      placeholder="Ej: Juan Pérez, Banco XYZ…"
+                      autoComplete="off"
+                      {...register('lender_name')}
+                    />
+                    <FieldError message={errors.lender_name?.message} />
+                  </div>
+                )}
+
+                {selectedLoanType !== 'NONE' && (
+                  <p className="text-[11px] text-luka-warning/70 flex items-start gap-1.5">
+                    <span className="shrink-0 mt-0.5">⚠</span>
+                    El balance de la cuenta de origen disminuirá. Este gasto se registrará como pendiente de reponer.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ── Signed amount preview ── */}
         {watch('amount') && parseFloat(watch('amount')) > 0 && (
           <div className={cn(
@@ -520,6 +717,8 @@ export function CreateTransactionDialog({
           )}>
             {isTransfer ? (
               <>Se traspasarán <span className="font-mono">{parseFloat(watch('amount') || '0').toFixed(2)}</span> de origen a destino</>
+            ) : isPaymentCategory ? (
+              <>El pago se registrará como <span className="font-mono text-luka-expense">−{parseFloat(watch('amount') || '0').toFixed(2)}</span> y {watch('destination_account_id') ? 'abonará a la TC seleccionada' : 'sólo se descontará de la cuenta'}</>
             ) : (
               <>El monto se guardará como <span className="font-mono">{mode === 'income' ? '+' : '−'}{parseFloat(watch('amount') || '0').toFixed(2)}</span></>
             )}

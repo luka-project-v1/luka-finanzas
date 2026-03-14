@@ -25,19 +25,24 @@ type RawCategory = {
   type?: string | null;
   color?: string | null;
   icon?: string | null;
+  is_system_category?: boolean | null;
 };
 
 function enrichCategory(cat: RawCategory): EnrichedCategory {
   const meta = META_MAP[cat.name];
-  const type = (cat.type === 'income' || cat.type === 'expense')
-    ? cat.type
-    : (INCOME_NAMES.has(cat.name) ? 'income' : 'expense');
+  let type: EnrichedCategory['type'];
+  if (cat.type === 'income' || cat.type === 'expense' || cat.type === 'both') {
+    type = cat.type;
+  } else {
+    type = INCOME_NAMES.has(cat.name) ? 'income' : 'expense';
+  }
   return {
     id: cat.id,
     name: cat.name,
     icon: cat.icon ?? meta?.icon ?? 'tag',
     color: cat.color ?? meta?.color ?? '#6B7280',
     type,
+    is_system_category: cat.is_system_category ?? false,
   };
 }
 
@@ -47,8 +52,9 @@ export default async function CategoriesPage() {
 
   const enriched = raw.map(enrichCategory);
 
-  const incomeCategories = enriched.filter((c) => c.type === 'income');
-  const expenseCategories = enriched.filter((c) => c.type === 'expense');
+  // 'both' categories appear in both income and expense sections
+  const incomeCategories = enriched.filter((c) => c.type === 'income' || c.type === 'both');
+  const expenseCategories = enriched.filter((c) => c.type === 'expense' || c.type === 'both');
 
   return (
     <CategoriesView

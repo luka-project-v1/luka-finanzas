@@ -122,14 +122,14 @@ export async function getOrCreateDefaultCurrencies(): Promise<ActionResult<Curre
         user_id: user.id,
         code: 'USD',
         name: 'US Dollar',
-        symbol: '$',
+        symbol: 'USD $',
         exchange_rate_to_preferred: 1,
       },
       {
         user_id: user.id,
         code: 'COP',
         name: 'Colombian Peso',
-        symbol: '$',
+        symbol: 'COP $',
         exchange_rate_to_preferred: 1,
       },
     ];
@@ -138,11 +138,13 @@ export async function getOrCreateDefaultCurrencies(): Promise<ActionResult<Curre
       .from('currencies')
       .insert(defaultCurrencies);
 
-    if (error) throw error;
+    // Another concurrent request already inserted the defaults — that's fine.
+    if (error && (error as { code?: string }).code !== '23505') throw error;
 
     return await getCurrencies();
   } catch (error) {
-    console.error('Error creating default currencies:', error);
+    const err = error as { code?: string; message?: string };
+    console.error('Error creating default currencies:', err?.message ?? err, err);
     return { success: false, error: 'Error al crear las divisas predeterminadas' };
   }
 }

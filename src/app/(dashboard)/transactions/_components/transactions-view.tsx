@@ -11,13 +11,16 @@ import {
   ChevronRight,
   ReceiptText,
   SlidersHorizontal,
-  X,
-  History,
   CheckCircle,
   MoreVertical,
   Pencil,
+  Trash2,
+  CreditCard,
+  X,
+  History,
+  AlertCircle,
 } from 'lucide-react';
-import { getLastAdjustmentDates, updateTransaction } from '@/lib/actions/transactions';
+import { getLastAdjustmentDates, updateTransaction, deleteTransaction } from '@/lib/actions/transactions';
 import { format } from 'date-fns';
 import { getTransactions } from '@/lib/actions/transactions';
 import { formatCurrency } from '@/lib/utils/currency';
@@ -32,6 +35,7 @@ import {
 } from '@/components/ui/tooltip';
 import { CreateTransactionDialog } from './create-transaction-dialog';
 import { TransactionDetailSheet } from './transaction-detail-sheet';
+import { Dialog } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import type { TransactionWithRelations } from '@/lib/repositories/transaction-repository';
 import type { AccountWithDetails } from '@/lib/repositories/account-repository';
@@ -235,22 +239,27 @@ function FilterBar({ filters, accounts, categories, isPending, onChange, onClear
   );
 }
 
-// ─── Transaction row actions (Mark as Paid + Edit menu) ─────────────────────
+// ─── Transaction row actions (Mark as Paid + Edit/Delete menu) ──────────────
 function TransactionRowActions({
   tx,
   isPending,
   isMarkingAsPaid,
+  isDeletingId,
   onMarkAsPaid,
   onEdit,
+  onDelete,
 }: {
   tx: TransactionWithRelations;
   isPending: boolean;
   isMarkingAsPaid: boolean;
+  isDeletingId: string | null;
   onMarkAsPaid: () => void;
   onEdit: () => void;
+  onDelete: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const isDeleting = isDeletingId === tx.id;
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -292,10 +301,15 @@ function TransactionRowActions({
             <button
               type="button"
               onClick={() => setMenuOpen((o) => !o)}
-              className="flex items-center justify-center w-8 h-8 rounded-full text-white/40 hover:text-white/70 hover:bg-neu-raised transition-colors duration-150"
+              disabled={isDeleting}
+              className="flex items-center justify-center w-8 h-8 rounded-full text-white/40 hover:text-white/70 hover:bg-neu-raised transition-colors duration-150 disabled:opacity-40 disabled:cursor-not-allowed"
               aria-label="Más opciones"
             >
-              <MoreVertical className="w-4 h-4" strokeWidth={2} />
+              {isDeleting ? (
+                <div className="w-4 h-4 border-2 border-white/20 border-t-white/50 rounded-full animate-spin" />
+              ) : (
+                <MoreVertical className="w-4 h-4" strokeWidth={2} />
+              )}
             </button>
           </TooltipTrigger>
           <TooltipContent side="left">Más opciones</TooltipContent>
@@ -316,6 +330,18 @@ function TransactionRowActions({
             >
               <Pencil className="w-3.5 h-3.5" strokeWidth={2} />
               Editar
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onDelete();
+                setMenuOpen(false);
+              }}
+              className="flex items-center gap-2 w-full px-3 py-2 text-left text-sm text-luka-expense/80 hover:bg-luka-expense/10 hover:text-luka-expense transition-colors"
+              role="menuitem"
+            >
+              <Trash2 className="w-3.5 h-3.5" strokeWidth={2} />
+              Eliminar
             </button>
           </div>
         )}
@@ -370,9 +396,11 @@ function TransactionRow({
   lastAdjustmentByAccount,
   transferInfo,
   markingAsPaidId,
+  deletingId,
   accountFilterId,
   onMarkAsPaid,
   onEdit,
+  onDelete,
   onRowClick,
 }: {
   tx: TransactionWithRelations;
@@ -380,9 +408,11 @@ function TransactionRow({
   lastAdjustmentByAccount: Record<string, { date: string; id: string }>;
   transferInfo: Record<string, TransferInfo>;
   markingAsPaidId: string | null;
+  deletingId: string | null;
   accountFilterId: string;
   onMarkAsPaid: (tx: TransactionWithRelations) => void;
   onEdit: (tx: TransactionWithRelations) => void;
+  onDelete: (tx: TransactionWithRelations) => void;
   onRowClick?: (tx: TransactionWithRelations) => void;
 }) {
   const signed = Number(tx.signed_amount ?? 0);
@@ -390,27 +420,48 @@ function TransactionRow({
   const isNeutral = tx.kind === 'TRANSFER' || tx.kind === 'ADJUSTMENT';
   const category = categories.find((c) => c.id === tx.category_id);
   const account = tx.accounts as any;
+  const isPaymentCategory = category?.name === 'Pagos Tarjeta';
 
   const info = tx.transfer_id ? transferInfo[tx.transfer_id] : null;
   const isGroupedTransfer = !accountFilterId && tx.transfer_id && tx.kind === 'TRANSFER';
-  const transferLabel = info && tx.kind === 'TRANSFER'
-    ? isGroupedTransfer
-      ? `${info.fromAccount.name} → ${info.toAccount.name}`
-      : signed < 0
-        ? `Hacia: ${info.toAccount.name}`
-        : `Desde: ${info.fromAccount.name}`
-    : null;
+
+  // Transfer label — resolved without nested ternaries
+  let transferLabel: string | null = null;
+  if (info && tx.kind === 'TRANSFER') {
+    if (isGroupedTransfer) {
+      transferLabel = `${info.fromAccount.name} → ${info.toAccount.name}`;
+    } else if (signed < 0) {
+      transferLabel = `Hacia: ${info.toAccount.name}`;
+    } else {
+      transferLabel = `Desde: ${info.fromAccount.name}`;
+    }
+  }
 
   // A row is "historical" (does not affect the current balance) when:
   //  - It is an ADJUSTMENT and it is NOT the most recent one for its account, OR
   //  - It is any other kind whose occurred_at is <= the most recent adjustment's date.
   const lastAdj = tx.account_id ? lastAdjustmentByAccount[tx.account_id] : undefined;
-  const isHistorical = !!lastAdj && !!tx.occurred_at && (
-    tx.kind === 'ADJUSTMENT'
+  let isHistorical = false;
+  if (lastAdj && tx.occurred_at) {
+    isHistorical = tx.kind === 'ADJUSTMENT'
       ? tx.id !== lastAdj.id
-      : tx.occurred_at <= lastAdj.date
-  );
+      : tx.occurred_at <= lastAdj.date;
+  }
   const isPending = tx.status === 'PENDING';
+
+  // Amount color — resolved without nested ternaries
+  let amountColor = 'text-luka-expense';
+  if (isHistorical) amountColor = 'text-white/30 line-through decoration-white/20';
+  else if (isGroupedTransfer) amountColor = 'text-luka-info';
+  else if (isPaymentCategory) amountColor = 'text-[#D97757]';
+  else if (isNeutral) amountColor = 'text-white/60';
+  else if (isIncome) amountColor = 'text-luka-income';
+
+  // Sign prefix — resolved without nested ternaries
+  let signPrefix = '';
+  if (!isGroupedTransfer && !isNeutral && !isPaymentCategory) {
+    signPrefix = isIncome ? '+' : '−';
+  }
 
   const rowContent = (
     <tr
@@ -434,7 +485,14 @@ function TransactionRow({
       {/* Category + Description */}
       <td className="px-5 py-4">
         <div className="flex items-center gap-3">
-          {isGroupedTransfer ? (
+          {category?.name === 'Pagos Tarjeta' ? (
+            <div className={cn(
+              'flex items-center justify-center w-8 h-8 rounded-full shrink-0 shadow-soft-out',
+              'bg-[#D97757]/15'
+            )}>
+              <CreditCard className="w-3.5 h-3.5 text-[#D97757]" strokeWidth={2} />
+            </div>
+          ) : isGroupedTransfer ? (
             <div className={cn(
               'flex items-center justify-center w-8 h-8 rounded-full shrink-0 shadow-soft-out',
               'bg-luka-info/10',
@@ -461,6 +519,31 @@ function TransactionRow({
               {transferLabel ?? tx.description ?? '—'}
             </p>
             <div className="flex items-center gap-1.5 mt-0.5">
+              {category?.name === 'Pagos Tarjeta' && (
+                 <span className="inline-flex items-center px-[6px] py-[2px] rounded-full text-[9px] font-bold uppercase tracking-widest bg-[#D97757]/20 text-[#D97757] border border-[#D97757]/30 mr-1">
+                   Pago TC
+                 </span>
+              )}
+              {tx.loan_type && tx.loan_type !== 'NONE' && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex items-center gap-0.5 px-[6px] py-[2px] rounded-full text-[9px] font-bold uppercase tracking-widest bg-luka-warning/15 text-luka-warning border border-luka-warning/25 cursor-default">
+                        <AlertCircle className="w-2.5 h-2.5 shrink-0" strokeWidth={2.5} />
+                        {tx.loan_type === 'SELF' ? 'Auto-préstamo' : 'Deuda'}
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      <p className="text-xs">
+                        Pendiente por pagar a{' '}
+                        <span className="font-semibold">
+                          {tx.lender_name ?? (tx.loan_type === 'SELF' ? 'Meta propia' : 'Prestamista')}
+                        </span>
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
               <p className={cn(
                 'text-xs truncate',
                 isPending && !isHistorical ? 'text-[#D97757]/70' : 'text-neu-muted',
@@ -500,19 +583,8 @@ function TransactionRow({
 
       {/* Amount — always visible */}
       <td className="px-5 py-4 text-right whitespace-nowrap">
-        <span className={cn(
-          'text-sm font-semibold tabular-nums',
-          isHistorical
-            ? 'text-white/30 line-through decoration-white/20'
-            : isGroupedTransfer
-              ? 'text-luka-info'
-              : isNeutral
-                ? 'text-white/60'
-                : isIncome
-                  ? 'text-luka-income'
-                  : 'text-luka-expense',
-        )}>
-          {isGroupedTransfer ? '' : isNeutral ? '' : isIncome ? '+' : '−'}
+        <span className={cn('text-sm font-semibold tabular-nums', amountColor)}>
+          {signPrefix}
           {formatCurrency(Math.abs(signed), '$')}
         </span>
       </td>
@@ -526,8 +598,10 @@ function TransactionRow({
           tx={tx}
           isPending={isPending}
           isMarkingAsPaid={markingAsPaidId === tx.id}
+          isDeletingId={deletingId}
           onMarkAsPaid={() => onMarkAsPaid(tx)}
           onEdit={() => onEdit(tx)}
+          onDelete={() => onDelete(tx)}
         />
       </td>
     </tr>
@@ -667,6 +741,8 @@ export function TransactionsView({
     Record<string, { date: string; id: string }>
   >(initialLastAdjustmentByAccount);
   const [markingAsPaidId, setMarkingAsPaidId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [txToDelete, setTxToDelete] = useState<TransactionWithRelations | null>(null);
 
   const fetchPage = useCallback(
     (newFilters: Filters, newPage: number) => {
@@ -767,6 +843,34 @@ export function TransactionsView({
     setEditDialogOpen(true);
   }
 
+  function handleDeleteRequest(tx: TransactionWithRelations) {
+    setTxToDelete(tx);
+  }
+
+  async function handleConfirmDelete() {
+    if (!txToDelete) return;
+    const id = txToDelete.id;
+    setDeletingId(id);
+    setTxToDelete(null);
+    setTransactions((prev) => prev.filter((t) => t.id !== id));
+    try {
+      const result = await deleteTransaction(id);
+      if (result.success) {
+        toast.success('Transacción eliminada');
+        refreshAdjustmentDates();
+        fetchPage(filters, page);
+      } else {
+        toast.error((result as { success: false; error: string }).error);
+        fetchPage(filters, page);
+      }
+    } catch {
+      toast.error('Error al eliminar la transacción');
+      fetchPage(filters, page);
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   function handleRowClick(tx: TransactionWithRelations) {
     const params = new URLSearchParams(window.location.search);
     params.set('transactionId', tx.id);
@@ -845,9 +949,11 @@ export function TransactionsView({
                         lastAdjustmentByAccount={lastAdjustmentByAccount}
                         transferInfo={transferInfo}
                         markingAsPaidId={markingAsPaidId}
+                        deletingId={deletingId}
                         accountFilterId={filters.accountId}
                         onMarkAsPaid={handleMarkAsPaid}
                         onEdit={handleEdit}
+                        onDelete={handleDeleteRequest}
                         onRowClick={handleRowClick}
                       />
                     ))}
@@ -904,6 +1010,45 @@ export function TransactionsView({
           onSuccess={handleSuccess}
         />
       </Suspense>
+
+      {/* ── Confirm Delete Dialog ── */}
+      <Dialog
+        open={!!txToDelete}
+        onOpenChange={(open) => { if (!open) setTxToDelete(null); }}
+        title="Eliminar transacción"
+        description="Esta acción es permanente. La transacción será eliminada y el saldo de la cuenta se actualizará automáticamente."
+        size="sm"
+      >
+        <div className="flex flex-col gap-3 pt-2">
+          {txToDelete && (
+            <div className="rounded-[0.75rem] bg-neu-raised border border-neu px-4 py-3 shadow-soft-in text-sm text-white/70">
+              <p className="font-medium text-white/90 truncate">
+                {txToDelete.description ?? KIND_LABELS[txToDelete.kind] ?? txToDelete.kind}
+              </p>
+              <p className="text-xs text-neu-muted mt-0.5">
+                {txToDelete.kind === 'TRANSFER' ? 'Se eliminarán ambas piernas de la transferencia.' : (txToDelete.accounts as { name?: string } | null)?.name ?? ''}
+              </p>
+            </div>
+          )}
+          <div className="flex gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => setTxToDelete(null)}
+              className="flex-1 neu-btn text-sm text-white/50 hover:text-white/80 border border-neu bg-neu-raised justify-center"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmDelete}
+              className="flex-1 neu-btn justify-center text-sm bg-luka-expense/15 border border-luka-expense/30 text-luka-expense hover:bg-luka-expense/25 transition-colors"
+            >
+              <Trash2 className="w-4 h-4" strokeWidth={2} />
+              Eliminar
+            </button>
+          </div>
+        </div>
+      </Dialog>
     </>
   );
 }
