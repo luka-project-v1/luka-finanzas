@@ -104,16 +104,15 @@ function Amount({ transaction }: { transaction: TransactionWithRelations }) {
   const isPositive = signed > 0;
   const isNeutral = transaction.kind === 'TRANSFER' || transaction.kind === 'ADJUSTMENT';
 
+  let amountColor = isPositive ? 'text-luka-income' : 'text-luka-expense';
+  if (isNeutral) amountColor = 'text-white/60';
+
+  let signPrefix = '';
+  if (!isNeutral) signPrefix = isPositive ? '+' : '−';
+
   return (
-    <span className={cn(
-      'text-sm font-semibold tabular-nums',
-      isNeutral
-        ? 'text-white/60'
-        : isPositive
-          ? 'text-luka-income'
-          : 'text-luka-expense',
-    )}>
-      {isNeutral ? '' : isPositive ? '+' : '−'}
+    <span className={cn('text-sm font-semibold tabular-nums', amountColor)}>
+      {signPrefix}
       {formatCurrency(Math.abs(signed), '$')}
     </span>
   );

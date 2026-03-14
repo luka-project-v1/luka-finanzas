@@ -24,11 +24,17 @@ function currencySymbol(code: string | null) {
   return code ? (map[code] ?? code) : '$';
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────
+function utilizationColor(pct: number): string {
+  if (pct < 30) return '#4ade80';
+  if (pct < 70) return '#fbbf24';
+  return '#f87171';
+}
+
 // ─── Utilization bar ──────────────────────────────────────────────────────
 function UtilizationBar({ pct }: { pct: number }) {
   const clamped = Math.min(100, Math.max(0, pct));
-  const color =
-    clamped < 30 ? '#4ade80' : clamped < 70 ? '#fbbf24' : '#f87171';
+  const color = utilizationColor(clamped);
 
   return (
     <div className="space-y-1.5">
@@ -109,27 +115,38 @@ function StatusBadge({ status }: { status: string }) {
 // ─── Transaction row ──────────────────────────────────────────────────────
 function TxRow({ tx }: { tx: TransactionWithRelations }) {
   const signed = Number(tx.signed_amount ?? 0);
-  // For LIABILITY (credit card): positive = charge (expense), negative = payment (reduces debt)
-  const isCharge = signed > 0;
-  const isPayment = signed < 0;
+  // Convention: negative = charge/expense (increases debt), positive = payment (reduces debt)
+  const isCharge = signed < 0;
+  const isPayment = signed > 0;
   const isNeutral = tx.kind === 'ADJUSTMENT';
 
-  const IconComp = isCharge
-    ? ArrowDownRight
-    : isPayment
-      ? ArrowUpRight
-      : ArrowLeftRight;
+  // Derive display values without nested ternaries
+  let IconComp: typeof ArrowLeftRight = ArrowLeftRight;
+  let iconColor = 'text-white/40';
+  let iconBg = 'bg-neu-raised';
+  let amountColor = 'text-white/60';
+  let signPrefix = '';
+  let defaultLabel = 'Ajuste';
 
-  const iconColor = isNeutral
-    ? 'text-white/40'
-    : isCharge
-      ? 'text-luka-expense'
-      : 'text-luka-income';
-  const iconBg = isNeutral
-    ? 'bg-neu-raised'
-    : isCharge
-      ? 'bg-luka-expense/10'
-      : 'bg-luka-income/10';
+  if (!isNeutral) {
+    if (isCharge) {
+      IconComp = ArrowDownRight;
+      iconColor = 'text-luka-expense';
+      iconBg = 'bg-luka-expense/10';
+      amountColor = 'text-luka-expense';
+      signPrefix = '−';
+      defaultLabel = 'Cargo';
+    } else if (isPayment) {
+      IconComp = ArrowUpRight;
+      iconColor = 'text-luka-income';
+      iconBg = 'bg-luka-income/10';
+      amountColor = 'text-luka-income';
+      signPrefix = '+';
+      defaultLabel = 'Pago';
+    }
+  }
+
+  const label = tx.description || defaultLabel;
 
   return (
     <div className="
@@ -150,9 +167,7 @@ function TxRow({ tx }: { tx: TransactionWithRelations }) {
 
       {/* Description + category */}
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-white/75 truncate">
-          {tx.description || (isCharge ? 'Cargo' : isPayment ? 'Pago' : 'Ajuste')}
-        </p>
+        <p className="text-sm font-medium text-white/75 truncate">{label}</p>
         <p className="text-xs text-neu-muted truncate">
           {(tx.categories as any)?.name ?? tx.kind}
         </p>
@@ -170,18 +185,9 @@ function TxRow({ tx }: { tx: TransactionWithRelations }) {
         <StatusBadge status={tx.status} />
       </div>
 
-      {/* Amount */}
-      <p
-        className={cn(
-          'text-sm font-semibold tabular-nums shrink-0 text-right min-w-[80px]',
-          isNeutral
-            ? 'text-white/60'
-            : isCharge
-              ? 'text-luka-expense'
-              : 'text-luka-income',
-        )}
-      >
-        {isNeutral ? '' : isCharge ? '+' : '−'}
+      {/* Amount: charge = "−" red, payment = "+" green, neutral = no prefix */}
+      <p className={cn('text-sm font-semibold tabular-nums shrink-0 text-right min-w-[80px]', amountColor)}>
+        {signPrefix}
         {formatCurrency(Math.abs(signed), '$')}
       </p>
     </div>
@@ -228,9 +234,12 @@ export function CardDetailPanel({ card }: CardDetailPanelProps) {
   const d = card.credit_card_details;
   const sym = currencySymbol(card.currency_code);
   const limit = Number(d.credit_limit ?? 0);
-  // For LIABILITY: positive balance = total charges (debt owed)
-  const charged = Math.max(0, Number(card.balance ?? 0));
-  const available = Math.max(0, limit - charged);
+  // Convention: balance is negative when in debt (e.g. -5000 means $5,000 owed).
+  // "Total Cargado" = absolute value of the negative portion (debt amount).
+  // "Disponible"    = credit_limit + balance  (limit minus debt).
+  const balance = Number(card.balance ?? 0);
+  const charged = Math.abs(Math.min(0, balance));
+  const available = Math.max(0, limit + balance);
   const utilPct = limit > 0 ? (charged / limit) * 100 : 0;
 
   useEffect(() => {

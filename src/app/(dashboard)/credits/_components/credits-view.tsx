@@ -29,6 +29,12 @@ function issuerGradient(issuer: string | null): string {
   }
 }
 
+function utilizationColor(pct: number): string {
+  if (pct < 30) return '#4ade80';
+  if (pct < 70) return '#fbbf24';
+  return '#f87171';
+}
+
 function issuerAccent(issuer: string | null): string {
   switch ((issuer ?? '').toUpperCase()) {
     case 'VISA':       return 'rgba(30,80,200,0.25)';
@@ -91,9 +97,10 @@ interface CreditCardChipProps {
 function CreditCardChip({ card, isSelected, onClick }: CreditCardChipProps) {
   const d = card.credit_card_details;
   const sym = currencySymbol(card.currency_code);
-  const limit  = Number(d.credit_limit ?? 0);
-  const charged = Math.max(0, Number(card.balance ?? 0));
-  const available = Math.max(0, limit - charged);
+  const limit   = Number(d.credit_limit ?? 0);
+  const balance = Number(card.balance ?? 0);
+  const charged  = Math.abs(Math.min(0, balance));
+  const available = Math.max(0, limit + balance);
   const utilPct = limit > 0 ? (charged / limit) * 100 : 0;
 
   const gradientClass = issuerGradient(d.issuer);
@@ -185,10 +192,9 @@ function CreditCardChip({ card, isSelected, onClick }: CreditCardChipProps) {
       {limit > 0 && (
         <div
           className="absolute top-0 left-0 h-[2px] transition-all duration-500 rounded-tl-[1.25rem]"
-          style={{
+            style={{
             width: `${Math.min(100, utilPct)}%`,
-            backgroundColor:
-              utilPct < 30 ? '#4ade80' : utilPct < 70 ? '#fbbf24' : '#f87171',
+            backgroundColor: utilizationColor(utilPct),
           }}
         />
       )}
@@ -219,7 +225,7 @@ function CardRow({
           <QuickStat
             label="Cargado"
             value={formatCurrency(
-              Math.max(0, Number(card.balance ?? 0)),
+              Math.abs(Math.min(0, Number(card.balance ?? 0))),
               currencySymbol(card.currency_code),
             )}
             color="text-luka-expense"

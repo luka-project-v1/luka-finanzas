@@ -22,8 +22,8 @@ export const transactionRepository = {
       endDate?: string;
       categoryId?: string;
       accountId?: string;
-      kind?: Database['public']['Enums']['transaction_kind'];
-      status?: Database['public']['Enums']['transaction_status'];
+      kind?: Database['public']['Enums']['TransactionKind'];
+      status?: Database['public']['Enums']['TransactionStatus'];
       limit?: number;
       offset?: number;
     }
@@ -200,7 +200,7 @@ export const transactionRepository = {
       amount: number;
       occurred_at?: string;
       description?: string | null;
-      status?: Database['public']['Enums']['transaction_status'];
+      status?: Database['public']['Enums']['TransactionStatus'];
     }
   ): Promise<TransactionWithRelations> {
     const supabase = await createClient();
@@ -287,6 +287,30 @@ export const transactionRepository = {
   },
 
   /**
+   * Deletes both legs of a transfer and the transfer record itself.
+   * Scoped to userId to prevent cross-user deletion.
+   */
+  async deleteTransferLegs(transferId: string, userId: string): Promise<void> {
+    const supabase = await createClient();
+
+    const { error: txError } = await supabase
+      .from('transactions')
+      .delete()
+      .eq('transfer_id', transferId)
+      .eq('user_id', userId);
+
+    if (txError) throw txError;
+
+    const { error: trError } = await supabase
+      .from('transfers')
+      .delete()
+      .eq('id', transferId)
+      .eq('user_id', userId);
+
+    if (trError) throw trError;
+  },
+
+  /**
    * Creates a transfer between two accounts atomically.
    * Uses explicit id (crypto.randomUUID()) to avoid 23502 NOT NULL on transfers.id.
    * Rollback on any failure to prevent orphaned data.
@@ -300,7 +324,7 @@ export const transactionRepository = {
     sourceCurrencyCode: string;
     description: string | null;
     occurredAt: string;
-    status: Database['public']['Enums']['transaction_status'];
+    status: Database['public']['Enums']['TransactionStatus'];
   }): Promise<{ debitTx: TransactionWithRelations; creditTx: TransactionWithRelations }> {
     const supabase = await createClient();
     const {
@@ -513,8 +537,10 @@ export const transactionRepository = {
         }
       }
 
-      // ASSET: positive = income, negative = expense
-      // LIABILITY: positive = charge (expense), negative = payment (reduces debt, not income)
+      // Sign convention for all account types:
+      // ASSET:     positive = income,  negative = expense
+      // LIABILITY: negative = charge/expense (increases debt, balance goes more negative)
+      //            positive = payment/income  (reduces debt, balance moves toward 0)
       if (balanceNature === 'ASSET') {
         if (amount > 0) {
           totalIncome = totalIncome.plus(amount);
@@ -522,12 +548,12 @@ export const transactionRepository = {
           totalExpense = totalExpense.plus(Math.abs(amount));
         }
       } else if (balanceNature === 'LIABILITY') {
-        // Skip credit card payment receipts (to avoid double-counting)
-        // Since the payment is already captured as an expense in the ASSET account.
+        // Skip credit card payment receipts (to avoid double-counting).
+        // The payment is already captured as an expense in the ASSET (savings) account.
         if (categoryName === 'Pagos Tarjeta') return;
-        
-        if (amount > 0) {
-          totalExpense = totalExpense.plus(amount);
+
+        if (amount < 0) {
+          totalExpense = totalExpense.plus(Math.abs(amount));
         }
       }
     });

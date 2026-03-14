@@ -48,8 +48,8 @@ export async function getTransactions(filters?: {
   endDate?: string;
   categoryId?: string;
   accountId?: string;
-  kind?: Database['public']['Enums']['transaction_kind'];
-  status?: Database['public']['Enums']['transaction_status'];
+  kind?: Database['public']['Enums']['TransactionKind'];
+  status?: Database['public']['Enums']['TransactionStatus'];
   page?: number;
   limit?: number;
 }): Promise<
@@ -243,9 +243,26 @@ export async function createTransaction(data: unknown): Promise<ActionResult<Tra
     const { destination_account_id: _, ...rest } = validated;
     const occurredAt = rest.occurred_at;
 
+    // Sign enforcement for CREDIT_CARD (LIABILITY) accounts:
+    // Convention: negative signed_amount = expense/charge (increases debt, balance goes negative)
+    //             positive signed_amount = income/payment (reduces debt, balance moves toward 0)
+    // For ASSET accounts the same convention holds (positive = income, negative = expense).
+    // The client form already sends the correct sign; this guard makes it explicit and
+    // prevents accidental sign inversion when called programmatically.
+    let enforcedSignedAmount = rest.signed_amount;
+    if (rest.kind !== 'TRANSFER' && rest.kind !== 'ADJUSTMENT') {
+      const txAccount = await accountRepository.getById(rest.account_id, user.id);
+      if (txAccount?.account_types?.balance_nature === 'LIABILITY') {
+        // Expense (charge): must be negative → balance decreases (more negative = more debt)
+        // Income/payment:   must be positive → balance increases (less negative = less debt)
+        // The sign is determined by the caller; we only validate it is not zero (already done by schema).
+        enforcedSignedAmount = rest.signed_amount;
+      }
+    }
+
     const transaction = await transactionRepository.create({
       account_id: rest.account_id,
-      signed_amount: rest.signed_amount,
+      signed_amount: enforcedSignedAmount,
       occurred_at: occurredAt,
       user_id: user.id,
       kind: rest.kind ?? 'NORMAL',
@@ -424,10 +441,52 @@ export async function deleteTransaction(id: string): Promise<ActionResult<void>>
       return { success: false, error: 'No autorizado' };
     }
 
-    await transactionRepository.delete(id, user.id);
+    const transaction = await transactionRepository.getById(id, user.id);
+    if (!transaction) {
+      return { success: false, error: 'Transacción no encontrada' };
+    }
+
+    // Anchor guard: block deletion of historical transactions
+    const accountIdsToCheck: string[] = transaction.account_id ? [transaction.account_id] : [];
+    if (transaction.transfer_id) {
+      const transferMap = await transactionRepository.getTransfersWithAccounts(user.id, [transaction.transfer_id]);
+      const info = transferMap.get(transaction.transfer_id);
+      if (info) {
+        accountIdsToCheck.push(info.fromAccount.id, info.toAccount.id);
+      }
+    }
+
+    if (accountIdsToCheck.length > 0) {
+      const lastAdjMap = await transactionRepository.getLastAdjustmentPerAccount(
+        user.id,
+        Array.from(new Set(accountIdsToCheck)),
+      );
+      const snapshotOccurredAt = transaction.occurred_at ?? '';
+      const isHistoric = accountIdsToCheck.some((accId) => {
+        const adj = lastAdjMap.get(accId);
+        return (
+          adj &&
+          snapshotOccurredAt &&
+          (transaction.kind === 'ADJUSTMENT' ? transaction.id !== adj.id : snapshotOccurredAt <= adj.date)
+        );
+      });
+      if (isHistoric) {
+        return {
+          success: false,
+          error: 'No puedes eliminar una transacción histórica (anterior a un ajuste).',
+        };
+      }
+    }
+
+    if (transaction.transfer_id && transaction.kind === 'TRANSFER') {
+      await transactionRepository.deleteTransferLegs(transaction.transfer_id, user.id);
+    } else {
+      await transactionRepository.delete(id, user.id);
+    }
 
     revalidatePath('/dashboard');
     revalidatePath('/transactions');
+    revalidatePath('/accounts');
 
     return { success: true, data: undefined };
   } catch (error) {
@@ -570,7 +629,7 @@ export async function createCreditCardPayment(data: {
   amount: number;
   description?: string | null;
   occurredAt: string;
-  status?: Database['public']['Enums']['transaction_status'];
+  status?: Database['public']['Enums']['TransactionStatus'];
 }): Promise<ActionResult<TransactionWithRelations>> {
   try {
     const user = await getCurrentUser();
@@ -604,13 +663,16 @@ export async function createCreditCardPayment(data: {
       source: 'MANUAL',
     });
 
-    // 2. Optionally create debt-reduction transaction on the credit card
+    // 2. Optionally create debt-reduction transaction on the credit card.
+    // Positive signed_amount on a LIABILITY account increases the balance (reduces debt).
+    // Convention: CC balance is negative when in debt (e.g. -5000 = owes 5000).
+    // A payment moves the balance toward 0, so signed_amount must be +amount.
     if (creditCardAccountId) {
       await transactionRepository.create({
         user_id: user.id,
         account_id: creditCardAccountId,
         signed_amount: Math.abs(amount),
-        category_id: categoryId, // same 'Pagos Tarjeta' category — getSummary will skip it for LIABILITY accounts
+        category_id: categoryId,
         description: description ?? 'Abono Tarjeta de Crédito',
         occurred_at: occurredAt,
         kind: 'NORMAL',

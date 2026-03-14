@@ -321,6 +321,17 @@ export function CreateTransactionDialog({
   const activeAccounts = accounts.filter((a) => a.status === 'ACTIVE');
   const destinationAccountOptions = activeAccounts.filter((a) => a.id !== selectedAccountId);
 
+  // Amount sign indicator — resolved without nested ternaries
+  let amountSymbolColor = 'text-luka-expense';
+  let amountSignPrefix = '−';
+  if (isTransfer) {
+    amountSymbolColor = 'text-luka-info';
+    amountSignPrefix = '';
+  } else if (mode === 'income') {
+    amountSymbolColor = 'text-luka-income';
+    amountSignPrefix = '+';
+  }
+
   return (
     <Dialog
       open={open}
@@ -411,9 +422,9 @@ export function CreateTransactionDialog({
             <div className="relative">
               <span className={cn(
                 'absolute left-4 top-1/2 -translate-y-1/2 text-sm font-bold',
-                isTransfer ? 'text-luka-info' : mode === 'income' ? 'text-luka-income' : 'text-luka-expense',
+                amountSymbolColor,
               )}>
-                {isTransfer ? '' : mode === 'income' ? '+' : '−'}
+                {amountSignPrefix}
               </span>
               <Input
                 type="number"
