@@ -1,8 +1,9 @@
 import { redirect } from 'next/navigation';
 import { getCurrentUser } from '@/lib/actions/auth';
-import { getOrCreateDefaultCurrencies } from '@/lib/actions/currencies';
+import { ensureDefaultCurrencies } from '@/lib/actions/currencies';
 import { syncSystemCategories } from '@/lib/actions/categories';
 import { SidebarNav } from '@/components/shared/sidebar-nav';
+import { MobileNav } from '@/components/shared/mobile-nav';
 
 export default async function DashboardLayout({
   children,
@@ -17,19 +18,22 @@ export default async function DashboardLayout({
 
   // Ensure user has default currencies (USD + COP) before rendering any page.
   // Runs on every dashboard navigation so total/net values are correct from the start.
-  await getOrCreateDefaultCurrencies();
+  await ensureDefaultCurrencies();
   await syncSystemCategories(user.id);
 
   return (
     <div className="flex min-h-screen bg-neu">
-      <SidebarNav userEmail={user.email ?? null} />
+      {/* Sidebar — hidden on mobile (max-width: 768px) */}
+      <div className="hidden md:block shrink-0">
+        <SidebarNav userEmail={user.email ?? null} />
+      </div>
 
       {/* ── Main content area ── */}
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 overflow-y-auto overflow-x-hidden min-w-0">
         {/* Top bar */}
         <header className="
           sticky top-0 z-10
-          h-16 flex items-center px-8
+          h-16 flex items-center px-4 md:px-8
           bg-neu/80 backdrop-blur-md
           border-b border-neu
         ">
@@ -37,11 +41,14 @@ export default async function DashboardLayout({
           <div className="flex-1" />
         </header>
 
-        {/* Page content */}
-        <div className="px-8 py-8 max-w-[1400px]">
+        {/* Page content — responsive padding (px-4 mobile), bottom padding for mobile nav */}
+        <div className="px-4 md:px-8 py-6 md:py-8 pb-24 md:pb-8 max-w-[1400px]">
           {children}
         </div>
       </main>
+
+      {/* Mobile bottom nav — visible only on screens < 768px */}
+      <MobileNav userEmail={user.email ?? null} />
     </div>
   );
 }

@@ -64,9 +64,9 @@ export function SheetContent({
           'fixed z-50',
           sidePosition[side],
           sideAnimations[side],
-          // Neumorphic panel
-          'bg-neu-surface border-l border-neu',
-          'shadow-soft-out-md',
+          // Neumorphic panel — border depends on side
+          'bg-neu-surface shadow-soft-out-md',
+          side === 'bottom' ? 'border-t border-neu' : 'border-l border-neu',
           'flex flex-col overflow-hidden',
           // Animations
           'data-[state=open]:animate-in data-[state=closed]:animate-out',

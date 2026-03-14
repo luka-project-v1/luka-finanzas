@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 import { getTransactions, getLastAdjustmentDates } from '@/lib/actions/transactions';
 import { getAllAccounts } from '@/lib/actions/accounts';
@@ -45,14 +46,16 @@ export default async function TransactionsPage() {
     adjustmentResult.success ? adjustmentResult.data : {};
 
   return (
-    <TransactionsView
-      initialTransactions={initialTransactions}
-      initialTotal={initialTotal}
-      initialTotalPages={initialTotalPages}
-      initialTransferInfo={initialTransferInfo}
-      accounts={accounts}
-      categories={categories as any}
-      initialLastAdjustmentByAccount={lastAdjustmentByAccount}
-    />
+    <Suspense fallback={null}>
+      <TransactionsView
+        initialTransactions={initialTransactions}
+        initialTotal={initialTotal}
+        initialTotalPages={initialTotalPages}
+        initialTransferInfo={initialTransferInfo}
+        accounts={accounts}
+        categories={categories as any}
+        initialLastAdjustmentByAccount={lastAdjustmentByAccount}
+      />
+    </Suspense>
   );
 }

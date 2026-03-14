@@ -35,12 +35,12 @@ export const Input = forwardRef<
   <input
     ref={ref}
     className={cn(
-      'w-full rounded-[0.75rem] px-4 py-2.5',
+      'w-full rounded-[0.75rem] px-4 py-2.5 min-h-[44px] md:min-h-0',
       'bg-[#0e0e0e] border border-[#1e1e1e]',
       'text-sm text-white/80 placeholder-[#444444]',
       'shadow-[inset_3px_3px_7px_#000,inset_-2px_-2px_5px_#1d1d1d]',
       'focus:outline-none focus:border-[#D97757]/50 focus:ring-1 focus:ring-[#D97757]/20',
-      'transition-all duration-150',
+      'transition-all duration-150 touch-manipulation',
       'disabled:opacity-40 disabled:cursor-not-allowed',
       // Date/datetime-local inputs have lighter placeholder text in dark mode
       '[color-scheme:dark]',
@@ -60,12 +60,12 @@ export const Select = forwardRef<
     <select
       ref={ref}
       className={cn(
-        'w-full rounded-[0.75rem] px-4 py-2.5 pr-9',
+        'w-full rounded-[0.75rem] px-4 py-2.5 pr-9 min-h-[44px] md:min-h-0',
         'bg-[#0e0e0e] border border-[#1e1e1e]',
         'text-sm text-white/80',
         'shadow-[inset_3px_3px_7px_#000,inset_-2px_-2px_5px_#1d1d1d]',
         'focus:outline-none focus:border-[#D97757]/50 focus:ring-1 focus:ring-[#D97757]/20',
-        'appearance-none cursor-pointer transition-all duration-150',
+        'appearance-none cursor-pointer transition-all duration-150 touch-manipulation',
         'disabled:opacity-40 disabled:cursor-not-allowed',
         '[color-scheme:dark]',
         className,

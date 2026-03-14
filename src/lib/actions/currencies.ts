@@ -1,6 +1,8 @@
 'use server';
 
 import { createClient, createAdminClient } from '@/lib/supabase/server';
+import { prisma } from '@/lib/prisma/client';
+import { getBaseCurrency } from './preferences';
 
 // --------------------------------
 // Types
@@ -12,22 +14,22 @@ interface CurrencyApiResponse {
   valid: boolean;
   /** Unix timestamp (seconds) of when the rates were last updated by the provider. */
   updated: number;
-  /** The base currency used for all rates (always "USD" in our setup). */
+  /** The base currency used for all rates. */
   base: string;
   /** Map of currency code → units of that currency per 1 unit of base. */
   rates: Record<string, number>;
 }
 
-// Currency type (not in Prisma schema, but exists in Supabase)
-type Currency = {
+// Currency action data type
+type CurrencyActionData = {
   id: string;
   user_id: string;
   code: string;
   name: string;
   symbol: string;
-  exchange_rate_to_preferred: number | null;
-  created_at?: string;
-  updated_at?: string;
+  exchange_rate_to_preferred: number | any; // Decimal type from Prisma
+  created_at?: string | Date;
+  updated_at?: string | Date;
 };
 
 type ActionResult<T> =
@@ -39,19 +41,18 @@ type ActionResult<T> =
 // --------------------------------
 
 /**
- * Fetches live exchange rates from currencyapi.net using USD as the base.
+ * Fetches live exchange rates from currencyapi.net using a dynamic base currency.
  * Throws a descriptive error if the request fails or the response is invalid.
  */
-async function fetchExchangeRatesFromApi(): Promise<CurrencyApiResponse> {
+async function fetchExchangeRatesFromApi(base: string = 'USD'): Promise<CurrencyApiResponse> {
   const apiKey = process.env.CURRENCY_API_KEY;
   if (!apiKey) {
     throw new Error('CURRENCY_API_KEY is not configured in environment variables');
   }
-  console.log('apiKey responseresponse', apiKey);
 
-  const url = `https://currencyapi.net/api/v2/rates?base=USD&output=json&key=${apiKey}`;
+  const url = `https://currencyapi.net/api/v2/rates?base=${base}&output=json&key=${apiKey}`;
   const response = await fetch(url, { cache: 'no-store' });
-  console.log('responseresponseresponse', response);
+  
   if (!response.ok) {
     throw new Error(
       `Currency API request failed — HTTP ${response.status} ${response.statusText}`
@@ -69,7 +70,7 @@ async function fetchExchangeRatesFromApi(): Promise<CurrencyApiResponse> {
   return data;
 }
 
-export async function getCurrencies(): Promise<ActionResult<Currency[]>> {
+export async function getCurrencies(): Promise<ActionResult<CurrencyActionData[]>> {
   try {
     const supabase = await createClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -86,14 +87,14 @@ export async function getCurrencies(): Promise<ActionResult<Currency[]>> {
 
     if (error) throw error;
 
-    return { success: true, data: (data as Currency[]) || [] };
+    return { success: true, data: (data as CurrencyActionData[]) || [] };
   } catch (error) {
     console.error('Error fetching currencies:', error);
     return { success: false, error: 'Error al obtener las divisas' };
   }
 }
 
-export async function getOrCreateDefaultCurrencies(): Promise<ActionResult<Currency[]>> {
+export async function ensureDefaultCurrencies(): Promise<ActionResult<CurrencyActionData[]>> {
   try {
     const supabase = await createClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -114,9 +115,6 @@ export async function getOrCreateDefaultCurrencies(): Promise<ActionResult<Curre
     }
 
     // Create default currencies (USD and COP).
-    // Both start with exchange_rate_to_preferred = 1 as a safe placeholder
-    // until the user refreshes rates from the API.
-    // COP is the base/preferred currency; USD will get its real rate on first refresh.
     const defaultCurrencies = [
       {
         user_id: user.id,
@@ -138,7 +136,6 @@ export async function getOrCreateDefaultCurrencies(): Promise<ActionResult<Curre
       .from('currencies')
       .insert(defaultCurrencies);
 
-    // Another concurrent request already inserted the defaults — that's fine.
     if (error && (error as { code?: string }).code !== '23505') throw error;
 
     return await getCurrencies();
@@ -151,8 +148,8 @@ export async function getOrCreateDefaultCurrencies(): Promise<ActionResult<Curre
 
 /**
  * Refreshes exchange rates for the authenticated user by calling currencyapi.net.
- * Stores the raw rate vs USD (1 USD = X units of the currency).
- * USD itself is always stored as 1.
+ * Uses the user's preferred base currency for the request.
+ * Stores the rates using Prisma upsert logic.
  */
 export async function refreshExchangeRates(): Promise<ActionResult<{ updated: number; skipped: number }>> {
   try {
@@ -163,47 +160,63 @@ export async function refreshExchangeRates(): Promise<ActionResult<{ updated: nu
       return { success: false, error: 'No autorizado' };
     }
 
-    const { data: currenciesRaw, error: fetchError } = await (supabase as any)
-      .from('currencies')
-      .select('*')
-      .eq('user_id', user.id);
+    // 1. Get user's base currency dynamically from user_preferences
+    const baseCurrencyInfo = await getBaseCurrency(user.id);
+    const baseCode = baseCurrencyInfo.code;
 
-    if (fetchError) throw fetchError;
+    // 2. Fetch existing currency rates for this user
+    const currenciesInDb = await prisma.currencyRate.findMany({
+      where: { userId: user.id },
+    });
 
-    const currencies = (currenciesRaw ?? []) as Currency[];
-
-    if (currencies.length === 0) {
+    if (currenciesInDb.length === 0) {
       return { success: false, error: 'No hay divisas configuradas. Ve a la página de Divisas primero.' };
     }
 
-    const apiData = await fetchExchangeRatesFromApi();
-    const ratesUpdatedAt = new Date(apiData.updated * 1000).toISOString();
+    // 3. Fetch live rates using the dynamic base currency
+    const apiData = await fetchExchangeRatesFromApi(baseCode);
+    const ratesUpdatedAt = new Date(apiData.updated * 1000);
 
     let updated = 0;
     let skipped = 0;
 
-    for (const currency of currencies) {
-      const rate = currency.code === apiData.base
+    // 4. Update rates using upsert
+    for (const currency of currenciesInDb) {
+      const rateFromApi = currency.code === apiData.base
         ? 1
         : apiData.rates[currency.code];
 
-      if (rate === undefined) {
-        console.warn(`Currency ${currency.code} not found in API response — skipping`);
+      if (rateFromApi === undefined) {
+        console.warn(`Currency ${currency.code} not found in API response for base ${baseCode} — skipping`);
         skipped++;
         continue;
       }
 
-      const { error: updateError } = await (supabase as any)
-        .from('currencies')
-        .update({ exchange_rate_to_preferred: rate, updated_at: ratesUpdatedAt })
-        .eq('id', currency.id)
-        .eq('user_id', user.id);
-
-      if (updateError) {
-        console.error(`Failed to update rate for ${currency.code}:`, updateError);
-        skipped++;
-      } else {
+      try {
+        await prisma.currencyRate.upsert({
+          where: {
+            userId_code: {
+              userId: user.id,
+              code: currency.code,
+            },
+          },
+          update: {
+            exchangeRateToPreferred: rateFromApi,
+            updatedAt: ratesUpdatedAt,
+          },
+          create: {
+            userId: user.id,
+            code: currency.code,
+            name: currency.name,
+            symbol: currency.symbol,
+            exchangeRateToPreferred: rateFromApi,
+            updatedAt: ratesUpdatedAt,
+          },
+        });
         updated++;
+      } catch (upsertError) {
+        console.error(`Failed to upsert rate for ${currency.code}:`, upsertError);
+        skipped++;
       }
     }
 
@@ -223,50 +236,33 @@ export async function refreshExchangeRates(): Promise<ActionResult<{ updated: nu
 }
 
 /**
- * Refreshes exchange rates for ALL users in the database.
- * Uses the service-role client (bypasses RLS). Intended for cron jobs only.
- * Fetches rates from currencyapi.net once and applies them to every currency row.
+ * Refreshes exchange rates for ALL users in the database using USD as a common base.
+ * Intended for cron jobs.
  */
 export async function refreshAllUsersExchangeRates(): Promise<ActionResult<{ updated: number }>> {
   try {
-    // Fetch rates once and reuse across all users
-    const apiData = await fetchExchangeRatesFromApi();
-    const ratesUpdatedAt = new Date(apiData.updated * 1000).toISOString();
+    const apiDataUSD = await fetchExchangeRatesFromApi('USD');
+    const ratesUpdatedAt = new Date(apiDataUSD.updated * 1000);
 
-    const supabase = createAdminClient();
-    // currencies table exists in Supabase but is not part of the generated Prisma/Database types
-    const { data: currencies, error: fetchError } = await (supabase as any)
-      .from('currencies')
-      .select('id, user_id, code')
-      .order('user_id');
+    const allCurrencies = await prisma.currencyRate.findMany();
 
-    if (fetchError) throw fetchError;
-
-    const list = (currencies ?? []) as { id: string; user_id: string; code: string }[];
-    if (list.length === 0) {
+    if (allCurrencies.length === 0) {
       return { success: true, data: { updated: 0 } };
     }
 
     let updated = 0;
 
-    for (const currency of list) {
-      const rate = currency.code === apiData.base
-        ? 1
-        : apiData.rates[currency.code];
+    for (const currency of allCurrencies) {
+      const rate = currency.code === 'USD' ? 1 : apiDataUSD.rates[currency.code];
 
-      if (rate === undefined) {
-        console.warn(`Currency ${currency.code} not found in API response — skipping`);
-        continue;
-      }
-
-      const { error: updateError } = await (supabase as any)
-        .from('currencies')
-        .update({ exchange_rate_to_preferred: rate, updated_at: ratesUpdatedAt })
-        .eq('id', currency.id);
-
-      if (updateError) {
-        console.error(`Failed to update rate for ${currency.code} (id: ${currency.id}):`, updateError);
-      } else {
+      if (rate !== undefined) {
+        await prisma.currencyRate.update({
+          where: { id: currency.id },
+          data: {
+            exchangeRateToPreferred: rate,
+            updatedAt: ratesUpdatedAt,
+          },
+        });
         updated++;
       }
     }

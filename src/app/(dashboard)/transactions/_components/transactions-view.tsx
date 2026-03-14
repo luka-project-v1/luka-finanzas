@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useTransition, useCallback, useEffect, useRef, Suspense } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Plus,
   ArrowUpRight,
@@ -163,7 +163,7 @@ function FilterBar({ filters, accounts, categories, isPending, onChange, onClear
             </p>
             <Input
               type="date"
-              className="w-36 text-xs py-2"
+              className="w-full md:w-36 text-xs py-2"
               value={filters.startDate}
               onChange={(e) => onChange({ ...filters, startDate: e.target.value })}
             />
@@ -175,7 +175,7 @@ function FilterBar({ filters, accounts, categories, isPending, onChange, onClear
             </p>
             <Input
               type="date"
-              className="w-36 text-xs py-2"
+              className="w-full md:w-36 text-xs py-2"
               value={filters.endDate}
               onChange={(e) => onChange({ ...filters, endDate: e.target.value })}
             />
@@ -387,6 +387,156 @@ function getDisplayRows(
     }
   }
   return result;
+}
+
+// ─── Transaction card (mobile) ──────────────────────────────────────────────
+function TransactionCard({
+  tx,
+  categories,
+  lastAdjustmentByAccount,
+  transferInfo,
+  markingAsPaidId,
+  deletingId,
+  accountFilterId,
+  onMarkAsPaid,
+  onEdit,
+  onDelete,
+  onRowClick,
+}: {
+  tx: TransactionWithRelations;
+  categories: Category[];
+  lastAdjustmentByAccount: Record<string, { date: string; id: string }>;
+  transferInfo: Record<string, TransferInfo>;
+  markingAsPaidId: string | null;
+  deletingId: string | null;
+  accountFilterId: string;
+  onMarkAsPaid: (tx: TransactionWithRelations) => void;
+  onEdit: (tx: TransactionWithRelations) => void;
+  onDelete: (tx: TransactionWithRelations) => void;
+  onRowClick?: (tx: TransactionWithRelations) => void;
+}) {
+  const signed = Number(tx.signed_amount ?? 0);
+  const isIncome = signed > 0;
+  const isNeutral = tx.kind === 'TRANSFER' || tx.kind === 'ADJUSTMENT';
+  const category = categories.find((c) => c.id === tx.category_id);
+  const isPaymentCategory = category?.name === 'Pagos Tarjeta';
+
+  const info = tx.transfer_id ? transferInfo[tx.transfer_id] : null;
+  const isGroupedTransfer = !accountFilterId && tx.transfer_id && tx.kind === 'TRANSFER';
+
+  let transferLabel: string | null = null;
+  if (info && tx.kind === 'TRANSFER') {
+    if (isGroupedTransfer) {
+      transferLabel = `${info.fromAccount.name} → ${info.toAccount.name}`;
+    } else if (signed < 0) {
+      transferLabel = `Hacia: ${info.toAccount.name}`;
+    } else {
+      transferLabel = `Desde: ${info.fromAccount.name}`;
+    }
+  }
+
+  const lastAdj = tx.account_id ? lastAdjustmentByAccount[tx.account_id] : undefined;
+  let isHistorical = false;
+  if (lastAdj && tx.occurred_at) {
+    isHistorical = tx.kind === 'ADJUSTMENT'
+      ? tx.id !== lastAdj.id
+      : tx.occurred_at <= lastAdj.date;
+  }
+  const isPending = tx.status === 'PENDING';
+
+  let amountColor = 'text-luka-expense';
+  if (isHistorical) amountColor = 'text-white/30 line-through decoration-white/20';
+  else if (isGroupedTransfer) amountColor = 'text-luka-info';
+  else if (isPaymentCategory) amountColor = 'text-[#D97757]';
+  else if (isNeutral) amountColor = 'text-white/60';
+  else if (isIncome) amountColor = 'text-luka-income';
+
+  let signPrefix = '';
+  if (!isGroupedTransfer && !isNeutral && !isPaymentCategory) {
+    signPrefix = isIncome ? '+' : '−';
+  }
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => onRowClick?.(tx)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onRowClick?.(tx);
+        }
+      }}
+      className={cn(
+        'flex items-center justify-between gap-3 p-4 rounded-xl',
+        'bg-neu-raised border border-neu',
+        'hover:bg-[#161616]/80 transition-colors duration-100 cursor-pointer',
+        isHistorical && 'opacity-40 grayscale',
+        isPending && 'border-dashed border-[#D97757]/50 bg-[#D97757]/[0.03]',
+      )}
+    >
+      <div className="flex items-center gap-3 min-w-0 flex-1">
+        {category?.name === 'Pagos Tarjeta' ? (
+          <div className={cn(
+            'flex items-center justify-center w-10 h-10 rounded-full shrink-0 shadow-soft-out',
+            'bg-[#D97757]/15'
+          )}>
+            <CreditCard className="w-4 h-4 text-[#D97757]" strokeWidth={2} />
+          </div>
+        ) : isGroupedTransfer ? (
+          <div className={cn(
+            'flex items-center justify-center w-10 h-10 rounded-full shrink-0 shadow-soft-out',
+            'bg-luka-info/10',
+          )}>
+            <ArrowLeftRight className="w-4 h-4 text-luka-info" strokeWidth={2} />
+          </div>
+        ) : category ? (
+          <div
+            className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold shrink-0 shadow-soft-out"
+            style={{ backgroundColor: `${categoryColor(category.name)}22`, color: categoryColor(category.name) }}
+          >
+            {category.name.charAt(0).toUpperCase()}
+          </div>
+        ) : (
+          <div className="shrink-0">
+            <KindIcon kind={tx.kind} />
+          </div>
+        )}
+
+        <div className="min-w-0 flex-1">
+          <p className={cn(
+            'text-sm font-medium truncate',
+            isHistorical ? 'text-white/40 line-through decoration-white/20' : 'text-white/80',
+            isPending && !isHistorical && 'text-[#D97757]/90',
+          )}>
+            {transferLabel ?? tx.description ?? '—'}
+          </p>
+          <p className={cn(
+            'text-xs truncate mt-0.5',
+            isPending && !isHistorical ? 'text-[#D97757]/70' : 'text-neu-muted',
+          )}>
+            {category?.name ?? (KIND_LABELS[tx.kind] ?? tx.kind)}
+          </p>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+        <span className={cn('text-base font-semibold tabular-nums', amountColor)}>
+          {signPrefix}
+          {formatCurrency(Math.abs(signed), '$')}
+        </span>
+        <TransactionRowActions
+          tx={tx}
+          isPending={isPending}
+          isMarkingAsPaid={markingAsPaidId === tx.id}
+          isDeletingId={deletingId}
+          onMarkAsPaid={() => onMarkAsPaid(tx)}
+          onEdit={() => onEdit(tx)}
+          onDelete={() => onDelete(tx)}
+        />
+      </div>
+    </div>
+  );
 }
 
 // ─── Table row ─────────────────────────────────────────────────────────────
@@ -726,6 +876,7 @@ export function TransactionsView({
   initialLastAdjustmentByAccount,
 }: TransactionsViewProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
 
   const [transactions, setTransactions] = useState(initialTransactions);
@@ -743,6 +894,19 @@ export function TransactionsView({
   const [markingAsPaidId, setMarkingAsPaidId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [txToDelete, setTxToDelete] = useState<TransactionWithRelations | null>(null);
+
+  // Open create dialog when navigating with ?openCreate=1 (e.g. from MobileNav FAB)
+  useEffect(() => {
+    if (searchParams.get('openCreate') === '1') {
+      setDialogOpen(true);
+      const params = new URLSearchParams(window.location.search);
+      params.delete('openCreate');
+      const newUrl = params.toString()
+        ? `${window.location.pathname}?${params.toString()}`
+        : window.location.pathname;
+      router.replace(newUrl);
+    }
+  }, [searchParams, router]);
 
   const fetchPage = useCallback(
     (newFilters: Filters, newPage: number) => {
@@ -906,21 +1070,43 @@ export function TransactionsView({
         />
       </div>
 
-      {/* ── Table card ── */}
-      <div className={cn('neu-card overflow-hidden transition-opacity duration-200', isPending && 'opacity-60')}>
+      {/* ── Table / Cards ── */}
+      <div className={cn('neu-card overflow-x-hidden overflow-y-visible transition-opacity duration-200', isPending && 'opacity-60')}>
         {transactions.length === 0 ? (
           <EmptyState onAdd={() => setDialogOpen(true)} />
         ) : (
           <>
-            <div className="overflow-x-auto">
+            {/* Mobile: card layout */}
+            <div className="md:hidden overflow-x-hidden">
+              <div className="flex flex-col gap-3 p-4">
+                {getDisplayRows(transactions, transferInfo, filters.accountId).map((tx) => (
+                  <TransactionCard
+                    key={tx.id}
+                    tx={tx}
+                    categories={categories}
+                    lastAdjustmentByAccount={lastAdjustmentByAccount}
+                    transferInfo={transferInfo}
+                    markingAsPaidId={markingAsPaidId}
+                    deletingId={deletingId}
+                    accountFilterId={filters.accountId}
+                    onMarkAsPaid={handleMarkAsPaid}
+                    onEdit={handleEdit}
+                    onDelete={handleDeleteRequest}
+                    onRowClick={handleRowClick}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* Desktop: table layout */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full">
-                {/* Head */}
                 <thead>
                   <tr className="border-b border-[#1e1e1e]">
                     {[
                       { label: 'Descripción', className: 'px-5 py-3 text-left w-full' },
-                      { label: 'Cuenta', className: 'hidden md:table-cell px-5 py-3 text-left' },
-                      { label: 'Fecha', className: 'hidden sm:table-cell px-5 py-3 text-left' },
+                      { label: 'Cuenta', className: 'px-5 py-3 text-left' },
+                      { label: 'Fecha', className: 'px-5 py-3 text-left' },
                       { label: 'Estado', className: 'hidden lg:table-cell px-5 py-3 text-left' },
                       { label: 'Monto', className: 'px-5 py-3 text-right' },
                       { label: '', className: 'px-5 py-3 text-right w-14' },
@@ -938,7 +1124,6 @@ export function TransactionsView({
                   </tr>
                 </thead>
 
-                {/* Body */}
                 <TooltipProvider delayDuration={300}>
                   <tbody>
                     {getDisplayRows(transactions, transferInfo, filters.accountId).map((tx) => (
@@ -963,7 +1148,7 @@ export function TransactionsView({
             </div>
 
             {/* Pagination */}
-            <div className="px-5 py-4">
+            <div className="px-4 md:px-5 py-4">
               <Pagination
                 page={page}
                 totalPages={totalPages}

@@ -101,6 +101,14 @@
   .neu-card:hover {
     box-shadow: 6px 6px 14px #000000, -4px -4px 9px #1c1c1c;
   }
+  @media (max-width: 768px) {
+    .neu-card {
+      box-shadow: 2px 2px 6px rgba(0,0,0,0.4), -2px -2px 4px rgba(26,26,26,0.3);
+    }
+    .neu-card:hover {
+      box-shadow: 3px 3px 8px rgba(0,0,0,0.45), -2px -2px 5px rgba(26,26,26,0.35);
+    }
+  }
 
   /* ── Input / inset element ── */
   .neu-input {
@@ -142,6 +150,16 @@
     box-shadow: 3px 3px 8px #000000, -2px -2px 6px #1a1a1a;
     transition: box-shadow 0.15s ease, transform 0.1s ease, background-color 0.15s ease;
     -webkit-tap-highlight-color: transparent;
+  }
+  @media (max-width: 768px) {
+    .neu-btn:not(.neu-btn-icon) {
+      min-height: 44px;
+      padding: 0.75rem 1.5rem;
+    }
+    .neu-btn-icon {
+      min-width: 44px;
+      min-height: 44px;
+    }
   }
   .neu-btn:hover:not(:disabled) {
     box-shadow: 5px 5px 12px #000000, -3px -3px 8px #1c1c1c;
@@ -238,6 +256,7 @@
    Utility Layer — quick shadow helpers
    ───────────────────────────────────────────── */
 @layer utilities {
+  /* Neumorphic shadows — contained to prevent horizontal overflow on mobile */
   .shadow-soft-out {
     box-shadow: 4px 4px 10px #000000, -3px -3px 7px #1a1a1a;
   }
@@ -249,6 +268,21 @@
   }
   .shadow-soft-in {
     box-shadow: inset 3px 3px 7px #000000, inset -2px -2px 5px #1d1d1d;
+  }
+  /* On mobile: lighter shadows for cleaner, less heavy UI */
+  @media (max-width: 768px) {
+    .shadow-soft-out {
+      box-shadow: 2px 2px 6px rgba(0,0,0,0.4), -2px -2px 4px rgba(26,26,26,0.25);
+    }
+    .shadow-soft-out-md {
+      box-shadow: 3px 3px 8px rgba(0,0,0,0.45), -2px -2px 5px rgba(26,26,26,0.3);
+    }
+    .shadow-soft-out-lg {
+      box-shadow: 4px 4px 10px rgba(0,0,0,0.5), -3px -3px 7px rgba(30,30,30,0.35);
+    }
+    .shadow-soft-in {
+      box-shadow: inset 2px 2px 4px rgba(0,0,0,0.35), inset -1px -1px 3px rgba(29,29,29,0.2);
+    }
   }
   .shadow-soft-in-md {
     box-shadow: inset 4px 4px 10px #000000, inset -3px -3px 7px #1d1d1d;

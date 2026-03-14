@@ -167,16 +167,16 @@ function CreditCardChip({ card, isSelected, onClick }: CreditCardChipProps) {
         </p>
 
         {/* ── Bottom row ── */}
-        <div className="flex items-end justify-between">
-          <div>
+        <div className="flex items-end justify-between gap-2 min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="text-[9px] uppercase tracking-widest text-white/25">Disponible</p>
-            <p className="text-base font-bold text-white/80 tabular-nums leading-tight">
+            <p className="text-sm sm:text-base font-bold text-white/80 tabular-nums leading-tight break-words">
               {formatCurrency(available, sym)}
             </p>
           </div>
-          <div className="text-right">
+          <div className="text-right shrink-0">
             <p className="text-[9px] uppercase tracking-widest text-white/25">Límite</p>
-            <p className="text-xs font-medium text-white/45 tabular-nums">
+            <p className="text-[10px] sm:text-xs font-medium text-white/45 tabular-nums">
               {formatCurrency(limit, sym)}
             </p>
           </div>
@@ -321,7 +321,7 @@ export function CreditsView({ cards }: { cards: CreditCard[] }) {
   return (
     <>
       {/* ── Page header ── */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-8 gap-4">
         <div className="space-y-1">
           <p className="text-xs font-medium text-neu-muted uppercase tracking-widest">Finanzas</p>
           <h1 className="text-2xl font-bold text-white/90 tracking-tight">Tarjetas de Crédito</h1>

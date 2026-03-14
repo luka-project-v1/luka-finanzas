@@ -69,6 +69,7 @@ const config = {
           accent: "#D97757",
           "accent-hover": "#C66647",
           "accent-dim": "rgba(217,119,87,0.15)",
+          terracotta: "#D67F61",
           income: "#4ade80",
           expense: "#f87171",
           warning: "#fbbf24",

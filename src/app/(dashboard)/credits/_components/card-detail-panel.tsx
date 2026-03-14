@@ -72,16 +72,19 @@ function StatTile({
   color?: string;
 }) {
   return (
-    <div className="flex flex-col gap-1 bg-neu-raised rounded-[1rem] px-4 py-3 shadow-soft-out">
+    <div className="flex flex-col gap-1.5 bg-neu-raised rounded-[1rem] px-3 sm:px-4 py-3 md:py-3.5 shadow-soft-out min-h-0 min-w-0 overflow-hidden">
       <p className="text-[10px] font-medium text-neu-muted uppercase tracking-widest">
         {label}
       </p>
       <p
-        className={cn('text-lg font-bold tabular-nums tracking-tight', color ?? 'text-white/80')}
+        className={cn(
+          'text-sm sm:text-base md:text-lg font-bold tabular-nums tracking-tight break-words',
+          color ?? 'text-white/80',
+        )}
       >
         {value}
       </p>
-      {sub && <p className="text-xs text-neu-muted">{sub}</p>}
+      {sub && <p className="text-xs text-neu-muted truncate">{sub}</p>}
     </div>
   );
 }
@@ -259,9 +262,9 @@ export function CardDetailPanel({ card }: CardDetailPanelProps) {
       {isPending ? (
         <DetailSkeleton />
       ) : (
-        <div className="p-6 space-y-6">
+        <div className="p-4 md:p-6 space-y-5 md:space-y-6">
           {/* ── Stats ── */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-3 gap-2 md:gap-3 min-w-0">
             <StatTile
               label="Total cargado"
               value={formatCurrency(charged, sym)}

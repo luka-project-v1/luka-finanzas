@@ -2,8 +2,8 @@
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-  provider = "prisma-client-js"
-}
+   provider = "prisma-client-js"
+ }
 
 datasource db {
   provider = "postgresql"
@@ -59,15 +59,17 @@ model User {
   updatedAt         DateTime @updatedAt @map("updated_at")
 
   // Relations
-  accounts          Account[]
-  categories        Category[]
-  reconciliations   Reconciliation[]
-  transactions      Transaction[]
-  transfers         Transfer[]
-  tags              Tag[]
-
-  @@map("users")
-}
+   accounts          Account[]
+   categories        Category[]
+   reconciliations   Reconciliation[]
+   transactions      Transaction[]
+   transfers         Transfer[]
+   tags              Tag[]
+   currencyRates     CurrencyRate[]
+   preferences       UserPreference?
+ 
+   @@map("users")
+ }
 
 // ================================
 // ACCOUNT TYPES (ENTITY)
@@ -316,5 +318,42 @@ model TransactionTag {
   tag           Tag         @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@id([transactionId, tagId])
-  @@map("transaction_tags")
-}
+   @@map("transaction_tags")
+ }
+ 
+ // ================================
+ // CURRENCIES
+ // ================================
+ 
+ model CurrencyRate {
+   id                      String   @id @default(dbgenerated("gen_random_uuid()"))
+   code                    String
+   name                    String
+   symbol                  String
+   exchangeRateToPreferred Decimal  @map("exchange_rate_to_preferred") @db.Decimal(30, 18)
+   userId                  String   @map("user_id")
+   updatedAt               DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+ 
+   // Relations
+   user                    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+ 
+   @@unique([userId, code])
+   @@index([userId])
+   @@map("currencies")
+ }
+ 
+ // ================================
+ // USER PREFERENCES
+ // ================================
+ 
+ model UserPreference {
+   userId            String   @id @map("user_id")
+   baseCurrencyCode  String?  @map("base_currency_code")
+   createdAt         DateTime @default(now()) @map("created_at")
+   updatedAt         DateTime @updatedAt @map("updated_at")
+ 
+   // Relations
+   user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+ 
+   @@map("user_preferences")
+ }

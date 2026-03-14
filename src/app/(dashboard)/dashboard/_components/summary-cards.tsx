@@ -10,9 +10,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 // ─── Skeleton exported for Suspense fallback ───────────────────────────────
 export function SummaryCardsSkeleton() {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-5">
       {[0, 1, 2, 3].map((i) => (
-        <div key={i} className="neu-card p-6 space-y-4">
+        <div key={i} className="neu-card p-4 md:p-6 space-y-3 md:space-y-4">
           <div className="flex items-center justify-between">
             <Skeleton className="h-4 w-24" />
             <Skeleton className="h-9 w-9 rounded-full" />
@@ -118,13 +118,13 @@ export async function SummaryCards({ startDate, endDate, monthLabel }: SummaryCa
   ];
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-5">
       {cards.map((card) => {
         const Icon = card.icon;
         return (
           <div
             key={card.label}
-            className="neu-card p-6 flex flex-col gap-4 relative overflow-hidden"
+            className="neu-card p-4 md:p-6 flex flex-col gap-3 md:gap-4 relative overflow-hidden min-h-0"
           >
             {/* Subtle gradient top-left accent */}
             <div
@@ -135,32 +135,37 @@ export async function SummaryCards({ startDate, endDate, monthLabel }: SummaryCa
             />
 
             {/* Header */}
-            <div className="flex items-center justify-between relative">
-              <span className="text-xs font-medium text-neu-muted uppercase tracking-widest">
+            <div className="flex items-center justify-between relative gap-2">
+              <span className="text-[10px] md:text-xs font-medium text-neu-muted uppercase tracking-widest">
                 {card.label}
               </span>
               <div
                 className={cn(
-                  'flex items-center justify-center w-9 h-9 rounded-full',
+                  'flex items-center justify-center w-8 h-8 md:w-9 md:h-9 rounded-full shrink-0',
                   'shadow-soft-out',
                   card.iconBg,
                 )}
               >
-                <Icon className={cn('w-4 h-4', card.iconColor)} strokeWidth={1.5} />
+                <Icon className={cn('w-3.5 h-3.5 md:w-4 md:h-4', card.iconColor)} strokeWidth={1.5} />
               </div>
             </div>
 
-            {/* Amount */}
-            <div className="relative">
-              <p className={cn('text-2xl font-bold tracking-tight', card.valueColor)}>
+            {/* Amount — text-wrap + responsive font for long numbers */}
+            <div className="relative min-w-0">
+              <p
+                className={cn(
+                  'text-lg sm:text-xl md:text-2xl font-bold tracking-tight break-words',
+                  card.valueColor,
+                )}
+              >
                 {formatCurrency(card.value, card.symbol ?? '$')}
               </p>
             </div>
 
             {/* Footer */}
-            <div className="flex items-center gap-1 relative">
+            <div className="flex items-center gap-1.5 relative">
               {card.trend}
-              <span className="text-xs text-neu-muted">{card.sublabel}</span>
+              <span className="text-[11px] md:text-xs text-neu-muted">{card.sublabel}</span>
             </div>
           </div>
         );
