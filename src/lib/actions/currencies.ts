@@ -143,7 +143,8 @@ export async function getOrCreateDefaultCurrencies(): Promise<ActionResult<Curre
 
     return await getCurrencies();
   } catch (error) {
-    console.error('Error creating default currencies:', error);
+    const err = error as { code?: string; message?: string };
+    console.error('Error creating default currencies:', err?.message ?? err, err);
     return { success: false, error: 'Error al crear las divisas predeterminadas' };
   }
 }
