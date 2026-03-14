@@ -142,7 +142,6 @@ export function CreateTransactionDialog({
     reset,
   } = form;
 
-  const selectedType = watch('type');
   const selectedAccountId = watch('account_id');
   const selectedCategoryId = watch('category_id');
   const selectedLoanType = watch('loan_type');
