@@ -77,6 +77,7 @@ export async function getOrCreateDefaultCategories(): Promise<
       { user_id: user.id, name: 'Servicios', type: 'expense', color: '#F59E0B', icon: 'zap', is_system_category: true },
       { user_id: user.id, name: 'Ropa', type: 'expense', color: '#06B6D4', icon: 'shirt', is_system_category: true },
       { user_id: user.id, name: 'Otros Gastos', type: 'expense', color: '#6B7280', icon: 'more-horizontal', is_system_category: true },
+      { user_id: user.id, name: 'Pagos Tarjeta', type: 'expense', color: '#DC2626', icon: 'credit-card', is_system_category: true },
       // Income categories
       { user_id: user.id, name: 'Salario', type: 'income', color: '#10B981', icon: 'briefcase', is_system_category: true },
       { user_id: user.id, name: 'Freelance', type: 'income', color: '#8B5CF6', icon: 'code', is_system_category: true },
@@ -157,16 +158,20 @@ export async function updateCategory(
 
     const supabase = await createClient();
 
-    // Verify category belongs to user
+    // Verify category belongs to user and is not a system category
     const { data: existing, error: fetchError } = await supabase
       .from('categories')
-      .select('id')
+      .select('id, is_system_category')
       .eq('id', id)
       .eq('user_id', user.id)
       .single();
 
     if (fetchError || !existing) {
       return { success: false, error: 'Categoría no encontrada' };
+    }
+
+    if (existing.is_system_category) {
+      return { success: false, error: 'Las categorías del sistema no pueden modificarse' };
     }
 
     const updatePayload: Record<string, unknown> = {
@@ -218,16 +223,20 @@ export async function deleteCategory(
 
     const supabase = await createClient();
 
-    // 🔐 Verify category belongs to user before deleting
+    // Verify category belongs to user and is not a system category before deleting
     const { data: existing, error: fetchError } = await supabase
       .from('categories')
-      .select('id')
+      .select('id, is_system_category')
       .eq('id', id)
       .eq('user_id', user.id)
       .single();
 
     if (fetchError || !existing) {
       return { success: false, error: 'Categoría no encontrada' };
+    }
+
+    if (existing.is_system_category) {
+      return { success: false, error: 'Las categorías del sistema no pueden eliminarse' };
     }
 
     const { error } = await supabase
@@ -246,5 +255,60 @@ export async function deleteCategory(
   } catch (error: unknown) {
     console.error('Error deleting category:', error);
     return { success: false, error: 'Error al eliminar la categoría' };
+  }
+}
+
+const SYSTEM_CATEGORIES = [
+  {
+    name: 'Pagos Tarjeta',
+    type: 'expense',
+    color: '#D97757',
+    icon: 'credit-card',
+  },
+  {
+    name: 'Varios',
+    type: 'both',
+    color: '#6B7280',
+    icon: 'list',
+  },
+] as const;
+
+/**
+ * Ensures all system categories exist for the given user.
+ * Uses a check-then-insert pattern so it is safe to call on every session.
+ * Supports both new users (onboarding) and legacy users missing newer system categories.
+ */
+export async function syncSystemCategories(userId: string): Promise<void> {
+  try {
+    const supabase = await createClient();
+
+    const { data: existing } = await supabase
+      .from('categories')
+      .select('name')
+      .eq('user_id', userId)
+      .in('name', SYSTEM_CATEGORIES.map((c) => c.name));
+
+    const existingNames = new Set((existing ?? []).map((c) => c.name));
+
+    const toInsert = SYSTEM_CATEGORIES.filter((c) => !existingNames.has(c.name)).map((c) => ({
+      user_id: userId,
+      name: c.name,
+      type: c.type,
+      color: c.color,
+      icon: c.icon,
+      is_system_category: true,
+      updated_at: new Date().toISOString(),
+    }));
+
+    if (toInsert.length === 0) return;
+
+    const { error } = await supabase
+      .from('categories')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .insert(toInsert as any);
+
+    if (error) throw error;
+  } catch (error) {
+    console.error('Error syncing system categories:', error);
   }
 }

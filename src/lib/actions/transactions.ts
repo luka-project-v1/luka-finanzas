@@ -8,6 +8,7 @@ import { accountRepository } from '@/lib/repositories/account-repository';
 import { createTransactionSchema, updateTransactionSchema } from '@/lib/validations/transaction-schema';
 import { createClient } from '@/lib/supabase/server';
 import { convertToBase } from '@/lib/utils/currency';
+import { syncSystemCategories } from '@/lib/actions/categories';
 import type { Database } from '@/lib/types/database.types';
 import type { TransactionWithRelations } from '@/lib/repositories/transaction-repository';
 
@@ -162,7 +163,8 @@ export async function getTransactionDetail(id: string): Promise<
           .from('accounts')
           .select('id, name, currency_code')
           .in('id', [info.fromAccount.id, info.toAccount.id]);
-        const accMap = new Map((accounts ?? []).map((a: { id: string; name: string; currency_code: string }) => [a.id, a]));
+        type AccEntry = { id: string; name: string; currency_code: string };
+        const accMap = new Map<string, AccEntry>((accounts ?? []).map((a: AccEntry) => [a.id, a]));
         const fromAcc = accMap.get(info.fromAccount.id);
         const toAcc = accMap.get(info.toAccount.id);
         if (fromAcc && toAcc) {
@@ -550,5 +552,79 @@ export async function getAccountTransactions(
   } catch (error) {
     console.error('Error fetching account transactions:', error);
     return { success: false, error: 'Error al obtener las transacciones de la cuenta' };
+  }
+}
+
+/**
+ * Registers a credit card payment as an expense:
+ * 1. Creates a NORMAL negative transaction on the savings account (expense).
+ * 2. Optionally creates a NORMAL positive transaction on the credit card (debt reduction).
+ *
+ * These are intentionally NOT linked as a Transfer so the savings-account leg
+ * appears as a true expense in the monthly summary. The CC leg is excluded from
+ * getSummary via the 'Pagos Tarjeta' category guard in the repository.
+ */
+export async function createCreditCardPayment(data: {
+  savingsAccountId: string;
+  creditCardAccountId?: string | null;
+  amount: number;
+  description?: string | null;
+  occurredAt: string;
+  status?: Database['public']['Enums']['transaction_status'];
+}): Promise<ActionResult<TransactionWithRelations>> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return { success: false, error: 'No autorizado' };
+    }
+
+    const { savingsAccountId, creditCardAccountId, amount, description, occurredAt, status = 'POSTED' } = data;
+
+    // Ensure system categories exist, then look up 'Pagos Tarjeta' id
+    await syncSystemCategories(user.id);
+    const supabase = await createClient();
+    const { data: paymentCat } = await supabase
+      .from('categories')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('name', 'Pagos Tarjeta')
+      .single();
+    const categoryId = paymentCat?.id ?? null;
+
+    // 1. Create expense on savings account (negative signed_amount)
+    const savingsTx = await transactionRepository.create({
+      user_id: user.id,
+      account_id: savingsAccountId,
+      signed_amount: -Math.abs(amount),
+      category_id: categoryId,
+      description: description ?? 'Pago Tarjeta de Crédito',
+      occurred_at: occurredAt,
+      kind: 'NORMAL',
+      status,
+      source: 'MANUAL',
+    });
+
+    // 2. Optionally create debt-reduction transaction on the credit card
+    if (creditCardAccountId) {
+      await transactionRepository.create({
+        user_id: user.id,
+        account_id: creditCardAccountId,
+        signed_amount: Math.abs(amount),
+        category_id: categoryId, // same 'Pagos Tarjeta' category — getSummary will skip it for LIABILITY accounts
+        description: description ?? 'Abono Tarjeta de Crédito',
+        occurred_at: occurredAt,
+        kind: 'NORMAL',
+        status,
+        source: 'MANUAL',
+      });
+    }
+
+    revalidatePath('/dashboard');
+    revalidatePath('/transactions');
+
+    return { success: true, data: savingsTx };
+  } catch (error) {
+    console.error('Error creating credit card payment:', error);
+    return { success: false, error: 'Error al registrar el pago de tarjeta' };
   }
 }

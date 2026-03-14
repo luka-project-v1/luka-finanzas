@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Utensils,
@@ -18,9 +18,15 @@ import {
   PlusCircle,
   Tag,
   Plus,
+  CreditCard,
+  List,
+  Lock,
+  Trash2,
   type LucideIcon,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils/cn';
+import { deleteCategory } from '@/lib/actions/categories';
 import { CreateCategoryDialog } from './create-category-dialog';
 
 // ─── Icon registry ──────────────────────────────────────────────────────────
@@ -39,6 +45,8 @@ const ICON_MAP: Record<string, LucideIcon> = {
   'trending-up': TrendingUp,
   'plus-circle': PlusCircle,
   tag: Tag,
+  'credit-card': CreditCard,
+  list: List,
 };
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -47,7 +55,8 @@ export type EnrichedCategory = {
   name: string;
   icon: string;
   color: string;
-  type: 'income' | 'expense';
+  type: 'income' | 'expense' | 'both';
+  is_system_category: boolean;
 };
 
 interface CategoriesViewProps {
@@ -56,13 +65,32 @@ interface CategoriesViewProps {
 }
 
 // ─── Category card ───────────────────────────────────────────────────────────
-function CategoryCard({ category }: { category: EnrichedCategory }) {
+function CategoryCard({
+  category,
+  onDeleted,
+}: {
+  category: EnrichedCategory;
+  onDeleted: (id: string) => void;
+}) {
   const Icon = ICON_MAP[category.icon] ?? Tag;
+  const [isPending, startTransition] = useTransition();
+
+  function handleDelete() {
+    startTransition(async () => {
+      const result = await deleteCategory(category.id);
+      if (result.success) {
+        toast.success(`Categoría "${category.name}" eliminada`);
+        onDeleted(category.id);
+      } else {
+        toast.error('error' in result ? result.error : 'Error al eliminar la categoría');
+      }
+    });
+  }
 
   return (
     <div
       className={cn(
-        'neu-card p-5 flex items-center gap-4',
+        'neu-card p-5 flex items-center gap-4 group',
         'transition-shadow duration-200 hover:shadow-soft-hover',
       )}
     >
@@ -83,9 +111,18 @@ function CategoryCard({ category }: { category: EnrichedCategory }) {
 
       {/* Name + color swatch */}
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-white/85 truncate">
-          {category.name}
-        </p>
+        <div className="flex items-center gap-1.5">
+          <p className="text-sm font-semibold text-white/85 truncate">
+            {category.name}
+          </p>
+          {category.is_system_category && (
+            <Lock
+              className="w-3 h-3 text-neu-muted shrink-0"
+              strokeWidth={2}
+              aria-label="Categoría del sistema"
+            />
+          )}
+        </div>
         <div className="flex items-center gap-1.5 mt-1">
           <div
             className="w-2 h-2 rounded-full"
@@ -96,6 +133,24 @@ function CategoryCard({ category }: { category: EnrichedCategory }) {
           </span>
         </div>
       </div>
+
+      {/* Delete button — hidden for system categories */}
+      {!category.is_system_category && (
+        <button
+          type="button"
+          onClick={handleDelete}
+          disabled={isPending}
+          className={cn(
+            'opacity-0 group-hover:opacity-100 transition-opacity duration-150',
+            'flex items-center justify-center w-8 h-8 rounded-lg shrink-0',
+            'text-neu-muted hover:text-luka-expense hover:bg-luka-expense/10',
+            'disabled:opacity-30 disabled:cursor-not-allowed',
+          )}
+          aria-label={`Eliminar ${category.name}`}
+        >
+          <Trash2 className="w-4 h-4" strokeWidth={1.5} />
+        </button>
+      )}
     </div>
   );
 }
@@ -186,11 +241,13 @@ type TabType = 'income' | 'expense';
 
 // ─── Main component ───────────────────────────────────────────────────────────
 export function CategoriesView({
-  incomeCategories,
-  expenseCategories,
+  incomeCategories: initialIncomeCategories,
+  expenseCategories: initialExpenseCategories,
 }: CategoriesViewProps) {
   const [activeTab, setActiveTab] = useState<TabType>('expense');
   const [createOpen, setCreateOpen] = useState(false);
+  const [incomeCategories, setIncomeCategories] = useState(initialIncomeCategories);
+  const [expenseCategories, setExpenseCategories] = useState(initialExpenseCategories);
   const router = useRouter();
 
   const total = incomeCategories.length + expenseCategories.length;
@@ -198,6 +255,11 @@ export function CategoriesView({
 
   function handleCreateSuccess() {
     router.refresh();
+  }
+
+  function handleDeleted(deletedId: string) {
+    setIncomeCategories((prev) => prev.filter((c) => c.id !== deletedId));
+    setExpenseCategories((prev) => prev.filter((c) => c.id !== deletedId));
   }
 
   return (
@@ -274,7 +336,7 @@ export function CategoriesView({
             />
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {currentCategories.map((cat) => (
-                <CategoryCard key={cat.id} category={cat} />
+                <CategoryCard key={cat.id} category={cat} onDeleted={handleDeleted} />
               ))}
             </div>
           </section>

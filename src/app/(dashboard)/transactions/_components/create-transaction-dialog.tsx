@@ -8,7 +8,8 @@ import { Loader2, TrendingUp, TrendingDown, ArrowLeftRight, ArrowRight, X } from
 import { toast } from 'sonner';
 import { Dialog } from '@/components/ui/dialog';
 import { FieldLabel, FieldError, Input, Select } from '@/components/ui/form-fields';
-import { createTransaction, updateTransaction } from '@/lib/actions/transactions';
+import { CategorySelect } from '@/components/ui/category-select';
+import { createTransaction, updateTransaction, createCreditCardPayment } from '@/lib/actions/transactions';
 import type { CreateTransactionInput, UpdateTransactionInput } from '@/lib/validations/transaction-schema';
 import { cn } from '@/lib/utils/cn';
 import type { AccountWithDetails } from '@/lib/repositories/account-repository';
@@ -128,6 +129,10 @@ export function CreateTransactionDialog({
 
   const selectedType = watch('type');
   const selectedAccountId = watch('account_id');
+  const selectedCategoryId = watch('category_id');
+
+  // Check if selected category is "Pagos Tarjeta"
+  const isPaymentCategory = categories.find(c => c.id === selectedCategoryId)?.name === 'Pagos Tarjeta';
 
   // Mode: expense | income | transfer (Traspaso)
   const [mode, setMode] = useState<TransactionMode>('expense');
@@ -138,6 +143,16 @@ export function CreateTransactionDialog({
     setValue('kind', isTransfer ? 'TRANSFER' : 'NORMAL');
     if (!isTransfer) setValue('destination_account_id', '');
   }, [isTransfer, setValue]);
+
+  // Clear "Pagos Tarjeta" selection when switching away from expense mode
+  useEffect(() => {
+    if (mode !== 'expense') {
+      const currentCategory = categories.find((c) => c.id === selectedCategoryId);
+      if (currentCategory?.name === 'Pagos Tarjeta') {
+        setValue('category_id', '');
+      }
+    }
+  }, [mode, categories, selectedCategoryId, setValue]);
 
   // Reset mode when dialog opens; when edit mode, populate from initialData
   useEffect(() => {
@@ -263,7 +278,19 @@ export function CreateTransactionDialog({
       };
     }
 
-    const result = await createTransaction(payload);
+    let result;
+    if (!isTransfer && isPaymentCategory) {
+      result = await createCreditCardPayment({
+        savingsAccountId: values.account_id,
+        creditCardAccountId: values.destination_account_id || null,
+        amount: rawAmount,
+        description: values.description || null,
+        occurredAt,
+        status: values.status,
+      });
+    } else {
+      result = await createTransaction(payload);
+    }
 
     if (result.success) {
       reset();
@@ -464,17 +491,35 @@ export function CreateTransactionDialog({
           {/* Category + Date side by side (Category hidden for TRANSFER) */}
           <div className={cn('grid gap-4', isTransfer ? 'grid-cols-1' : 'grid-cols-2')}>
             {!isTransfer && (
-              <div>
-                <FieldLabel>Categoría</FieldLabel>
-                <Select {...register('category_id')}>
-                  <option value="">Sin categoría</option>
-                  {categories.map((cat) => (
-                    <option key={cat.id} value={cat.id}>
-                      {cat.name}
-                    </option>
-                  ))}
-                </Select>
-                <FieldError message={errors.category_id?.message} />
+              <div className="space-y-4">
+                <div>
+                  <FieldLabel>Categoría</FieldLabel>
+                  <CategorySelect
+                    categories={categories}
+                    value={selectedCategoryId ?? ''}
+                    onChange={(id) => setValue('category_id', id, { shouldValidate: true })}
+                    isExpense={mode === 'expense'}
+                  />
+                  <FieldError message={errors.category_id?.message} />
+                </div>
+                
+                {/* Credit Card payment selector (appears when Pagos Tarjeta category is selected) */}
+                {isPaymentCategory && (
+                  <div className="pt-2 border-t border-white/5 animate-in fade-in slide-in-from-top-1">
+                    <FieldLabel>Tarjeta a pagar (Opcional)</FieldLabel>
+                    <Select {...register('destination_account_id')}>
+                      <option value="">No registrar en TC</option>
+                      {activeAccounts
+                        .filter(a => a.account_types.code === 'CREDIT_CARD')
+                        .map((acc) => (
+                          <option key={acc.id} value={acc.id}>
+                            {acc.name} ({acc.currency_code})
+                          </option>
+                        ))}
+                    </Select>
+                    <FieldError message={errors.destination_account_id?.message} />
+                  </div>
+                )}
               </div>
             )}
             <div>
@@ -520,6 +565,8 @@ export function CreateTransactionDialog({
           )}>
             {isTransfer ? (
               <>Se traspasarán <span className="font-mono">{parseFloat(watch('amount') || '0').toFixed(2)}</span> de origen a destino</>
+            ) : isPaymentCategory ? (
+              <>El pago se registrará como <span className="font-mono text-luka-expense">−{parseFloat(watch('amount') || '0').toFixed(2)}</span> y {watch('destination_account_id') ? 'abonará a la TC seleccionada' : 'sólo se descontará de la cuenta'}</>
             ) : (
               <>El monto se guardará como <span className="font-mono">{mode === 'income' ? '+' : '−'}{parseFloat(watch('amount') || '0').toFixed(2)}</span></>
             )}

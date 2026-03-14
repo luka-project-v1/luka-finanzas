@@ -475,7 +475,7 @@ export const transactionRepository = {
 
     const { data, error } = await supabase
       .from('transactions')
-      .select('signed_amount, kind, account_id, occurred_at, accounts!inner(currency_code, account_types!inner(balance_nature))')
+      .select('signed_amount, kind, account_id, occurred_at, accounts!inner(currency_code, account_types!inner(balance_nature)), categories(name)')
       .eq('user_id', userId)
       .eq('status', 'POSTED')
       .gte('occurred_at', startStr)
@@ -499,6 +499,7 @@ export const transactionRepository = {
       const account = t.accounts as any;
       const balanceNature = account?.account_types?.balance_nature;
       const currencyCode: string = account?.currency_code ?? '';
+      const categoryName = (t as any).categories?.name;
 
       // Convert to preferred currency: amount × (rateDest / rateOrigin)
       let amount = rawAmount;
@@ -521,6 +522,10 @@ export const transactionRepository = {
           totalExpense = totalExpense.plus(Math.abs(amount));
         }
       } else if (balanceNature === 'LIABILITY') {
+        // Skip credit card payment receipts (to avoid double-counting)
+        // Since the payment is already captured as an expense in the ASSET account.
+        if (categoryName === 'Pagos Tarjeta') return;
+        
         if (amount > 0) {
           totalExpense = totalExpense.plus(amount);
         }

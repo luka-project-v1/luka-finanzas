@@ -11,11 +11,12 @@ import {
   ChevronRight,
   ReceiptText,
   SlidersHorizontal,
-  X,
-  History,
   CheckCircle,
   MoreVertical,
   Pencil,
+  CreditCard,
+  X,
+  History,
 } from 'lucide-react';
 import { getLastAdjustmentDates, updateTransaction } from '@/lib/actions/transactions';
 import { format } from 'date-fns';
@@ -434,7 +435,14 @@ function TransactionRow({
       {/* Category + Description */}
       <td className="px-5 py-4">
         <div className="flex items-center gap-3">
-          {isGroupedTransfer ? (
+          {category?.name === 'Pagos Tarjeta' ? (
+            <div className={cn(
+              'flex items-center justify-center w-8 h-8 rounded-full shrink-0 shadow-soft-out',
+              'bg-[#D97757]/15'
+            )}>
+              <CreditCard className="w-3.5 h-3.5 text-[#D97757]" strokeWidth={2} />
+            </div>
+          ) : isGroupedTransfer ? (
             <div className={cn(
               'flex items-center justify-center w-8 h-8 rounded-full shrink-0 shadow-soft-out',
               'bg-luka-info/10',
@@ -461,6 +469,11 @@ function TransactionRow({
               {transferLabel ?? tx.description ?? '—'}
             </p>
             <div className="flex items-center gap-1.5 mt-0.5">
+              {category?.name === 'Pagos Tarjeta' && (
+                 <span className="inline-flex items-center px-[6px] py-[2px] rounded-full text-[9px] font-bold uppercase tracking-widest bg-[#D97757]/20 text-[#D97757] border border-[#D97757]/30 mr-1">
+                   Pago TC
+                 </span>
+              )}
               <p className={cn(
                 'text-xs truncate',
                 isPending && !isHistorical ? 'text-[#D97757]/70' : 'text-neu-muted',
@@ -506,13 +519,15 @@ function TransactionRow({
             ? 'text-white/30 line-through decoration-white/20'
             : isGroupedTransfer
               ? 'text-luka-info'
-              : isNeutral
-                ? 'text-white/60'
-                : isIncome
-                  ? 'text-luka-income'
-                  : 'text-luka-expense',
+              : category?.name === 'Pagos Tarjeta'
+                ? 'text-[#D97757]'
+                : isNeutral
+                  ? 'text-white/60'
+                  : isIncome
+                    ? 'text-luka-income'
+                    : 'text-luka-expense',
         )}>
-          {isGroupedTransfer ? '' : isNeutral ? '' : isIncome ? '+' : '−'}
+          {isGroupedTransfer ? '' : (isNeutral || category?.name === 'Pagos Tarjeta') ? '' : isIncome ? '+' : '−'}
           {formatCurrency(Math.abs(signed), '$')}
         </span>
       </td>

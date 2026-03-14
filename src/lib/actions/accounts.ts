@@ -18,6 +18,29 @@ async function getCurrentUser() {
   return user;
 }
 
+export async function getAllAccounts(endDate?: string): Promise<ActionResult<AccountWithDetails[]>> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return { success: false, error: 'No autorizado' };
+    }
+
+    const accounts = await accountRepository.getAll(user.id);
+
+    const accountsWithBalance = await Promise.all(
+      accounts.map(async (account) => {
+        const balance = await accountRepository.calculateBalance(account.id, endDate, user.id);
+        return { ...account, balance };
+      })
+    );
+
+    return { success: true, data: accountsWithBalance };
+  } catch (error) {
+    console.error('Error fetching accounts:', error);
+    return { success: false, error: 'Error al obtener las cuentas' };
+  }
+}
+
 export async function getBankAccounts(endDate?: string): Promise<ActionResult<AccountWithDetails[]>> {
   try {
     const user = await getCurrentUser();

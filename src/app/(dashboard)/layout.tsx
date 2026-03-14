@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { getCurrentUser } from '@/lib/actions/auth';
 import { getOrCreateDefaultCurrencies } from '@/lib/actions/currencies';
+import { syncSystemCategories } from '@/lib/actions/categories';
 import { SidebarNav } from '@/components/shared/sidebar-nav';
 
 export default async function DashboardLayout({
@@ -17,6 +18,7 @@ export default async function DashboardLayout({
   // Ensure user has default currencies (USD + COP) before rendering any page.
   // Runs on every dashboard navigation so total/net values are correct from the start.
   await getOrCreateDefaultCurrencies();
+  await syncSystemCategories(user.id);
 
   return (
     <div className="flex min-h-screen bg-neu">

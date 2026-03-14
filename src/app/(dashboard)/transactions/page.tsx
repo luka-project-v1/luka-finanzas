@@ -1,7 +1,7 @@
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 import { getTransactions, getLastAdjustmentDates } from '@/lib/actions/transactions';
-import { getBankAccounts } from '@/lib/actions/accounts';
-import { getCategories } from '@/lib/actions/categories';
+import { getAllAccounts } from '@/lib/actions/accounts';
+import { getOrCreateDefaultCategories } from '@/lib/actions/categories';
 import { TransactionsView } from './_components/transactions-view';
 
 export const metadata = {
@@ -29,10 +29,9 @@ export default async function TransactionsPage() {
 
   const [txResult, accountsResult, categoriesResult] = await Promise.all([
     getTransactions({ startDate, endDate, page: 1, limit: 20 }),
-    getBankAccounts(),
-    getCategories(),
+    getAllAccounts(),
+    getOrCreateDefaultCategories(),
   ]);
-
   const initialTransactions = txResult.success ? txResult.data.data : [];
   const initialTotal = txResult.success ? txResult.data.count : 0;
   const initialTotalPages = txResult.success ? txResult.data.totalPages : 0;
