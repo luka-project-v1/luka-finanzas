@@ -206,3 +206,45 @@ export async function updateCategory(
     return { success: false, error: 'Error al actualizar la categoría' };
   }
 }
+
+export async function deleteCategory(
+  id: string
+): Promise<ActionResult<void>> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return { success: false, error: 'No autorizado' };
+    }
+
+    const supabase = await createClient();
+
+    // 🔐 Verify category belongs to user before deleting
+    const { data: existing, error: fetchError } = await supabase
+      .from('categories')
+      .select('id')
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .single();
+
+    if (fetchError || !existing) {
+      return { success: false, error: 'Categoría no encontrada' };
+    }
+
+    const { error } = await supabase
+      .from('categories')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', user.id);
+
+    if (error) throw error;
+
+    revalidatePath('/categories');
+    revalidatePath('/dashboard');
+    revalidatePath('/transactions');
+
+    return { success: true, data: undefined };
+  } catch (error: unknown) {
+    console.error('Error deleting category:', error);
+    return { success: false, error: 'Error al eliminar la categoría' };
+  }
+}

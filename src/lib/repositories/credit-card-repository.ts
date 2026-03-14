@@ -86,7 +86,8 @@ export const creditCardRepository = {
       (data || [])
         .filter(account => account.credit_card_details)
         .map(async (account) => {
-          const balance = await accountRepository.calculateBalance(account.id);
+          // 🔐 Pass userId to enforce IDOR protection inside calculateBalance
+          const balance = await accountRepository.calculateBalance(account.id, undefined, userId);
           return {
             ...account,
             credit_card_details: account.credit_card_details,

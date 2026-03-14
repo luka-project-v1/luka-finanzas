@@ -35,7 +35,8 @@ export async function getBankAccounts(endDate?: string): Promise<ActionResult<Ac
     // Recalculate balances with endDate
     const accountsWithBalance = await Promise.all(
       accounts.map(async (account) => {
-        const balance = await accountRepository.calculateBalance(account.id, endDate);
+        // 🔐 Pass user.id to enforce IDOR protection inside calculateBalance
+        const balance = await accountRepository.calculateBalance(account.id, endDate, user.id);
         return { ...account, balance };
       })
     );
@@ -269,7 +270,8 @@ export async function getTotalBalanceInPreferredCurrency(endDate?: string): Prom
     // Recalculate balances with endDate
     const accountsWithBalance = await Promise.all(
       accounts.map(async (account) => {
-        const balance = await accountRepository.calculateBalance(account.id, endDate);
+        // 🔐 Pass user.id to enforce IDOR protection inside calculateBalance
+        const balance = await accountRepository.calculateBalance(account.id, endDate, user.id);
         return { ...account, balance };
       })
     );
