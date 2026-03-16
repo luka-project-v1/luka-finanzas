@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { z } from 'zod';
+import { getURL } from '@/lib/utils/url';
 
 type ActionResult<T> =
   | { success: true; data: T }
@@ -28,7 +29,7 @@ export async function signUp(data: unknown): Promise<ActionResult<{ email: strin
       email: validated.email,
       password: validated.password,
       options: {
-        emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`,
+        emailRedirectTo: `${getURL()}auth/callback`,
       },
     });
 
@@ -73,6 +74,37 @@ export async function signIn(data: unknown): Promise<ActionResult<void>> {
 
   revalidatePath('/', 'layout');
   redirect('/dashboard');
+}
+
+export type OAuthProvider = 'google' | 'apple';
+
+export async function signInWithOAuth(provider: OAuthProvider): Promise<ActionResult<void>> {
+  try {
+    const supabase = await createClient();
+    const redirectTo = `${getURL()}auth/callback`;
+    
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo,
+      },
+    });
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    if (data.url) {
+      redirect(data.url);
+    }
+
+    return { success: true, data: undefined };
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('NEXT_REDIRECT')) {
+      throw error; // Re-throw Next.js redirect errors
+    }
+    return { success: false, error: `Error al iniciar sesión con ${provider}` };
+  }
 }
 
 export async function signOut(): Promise<ActionResult<void>> {
