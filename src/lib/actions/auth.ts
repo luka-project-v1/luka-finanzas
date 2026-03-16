@@ -6,9 +6,10 @@ import { createClient } from '@/lib/supabase/server';
 import { z } from 'zod';
 import { getURL } from '@/lib/utils/url';
 
-type ActionResult<T> =
+export type ActionResult<T> =
   | { success: true; data: T }
   | { success: false; error: string; details?: unknown };
+
 
 const signUpSchema = z.object({
   email: z.string().email('Correo electrónico inválido'),
@@ -107,7 +108,9 @@ export async function signInWithOAuth(provider: OAuthProvider): Promise<ActionRe
   }
 }
 
+
 export async function signOut(): Promise<ActionResult<void>> {
+
   try {
     const supabase = await createClient();
     const { error } = await supabase.auth.signOut();
@@ -116,7 +119,6 @@ export async function signOut(): Promise<ActionResult<void>> {
       return { success: false, error: error.message };
     }
   } catch (error) {
-    console.error('Error signing out:', error);
 
     return { success: false, error: 'Error al cerrar sesión' };
   }

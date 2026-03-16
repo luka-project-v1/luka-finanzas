@@ -675,25 +675,24 @@ function TransactionRow({
                  </span>
               )}
               {tx.loan_type && tx.loan_type !== 'NONE' && (
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="inline-flex items-center gap-0.5 px-[6px] py-[2px] rounded-full text-[9px] font-bold uppercase tracking-widest bg-luka-warning/15 text-luka-warning border border-luka-warning/25 cursor-default">
-                        <AlertCircle className="w-2.5 h-2.5 shrink-0" strokeWidth={2.5} />
-                        {tx.loan_type === 'SELF' ? 'Auto-préstamo' : 'Deuda'}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex items-center gap-0.5 px-[6px] py-[2px] rounded-full text-[9px] font-bold uppercase tracking-widest bg-luka-warning/15 text-luka-warning border border-luka-warning/25 cursor-default">
+                      <AlertCircle className="w-2.5 h-2.5 shrink-0" strokeWidth={2.5} />
+                      {tx.loan_type === 'SELF' ? 'Auto-préstamo' : 'Deuda'}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    <p className="text-xs">
+                      Pendiente por pagar a{' '}
+                      <span className="font-semibold">
+                        {tx.lender_name ?? (tx.loan_type === 'SELF' ? 'Meta propia' : 'Prestamista')}
                       </span>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">
-                      <p className="text-xs">
-                        Pendiente por pagar a{' '}
-                        <span className="font-semibold">
-                          {tx.lender_name ?? (tx.loan_type === 'SELF' ? 'Meta propia' : 'Prestamista')}
-                        </span>
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
               )}
+
               <p className={cn(
                 'text-xs truncate',
                 isPending && !isHistorical ? 'text-[#D97757]/70' : 'text-neu-muted',

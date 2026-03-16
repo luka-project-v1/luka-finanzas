@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import { signUp } from '@/lib/actions/auth';
+import { LukaBrand } from '@/components/shared/luka-logo';
 
 type SignUpState =
   | { status: 'idle' }
@@ -44,10 +45,8 @@ export default function SignUpPage() {
   if (state.status === 'success') {
     return (
       <div className="w-full max-w-sm">
-        <div className="text-center mb-8">
-          <span className="text-4xl font-bold tracking-tight text-neu-accent">
-            Luka
-          </span>
+        <div className="text-center mb-8 flex flex-col items-center">
+          <LukaBrand className="text-4xl font-bold tracking-tight text-neu-accent" />
           <p className="mt-1 text-sm text-neu-muted">Control de Finanzas Personales</p>
         </div>
 
@@ -89,10 +88,8 @@ export default function SignUpPage() {
   return (
     <div className="w-full max-w-sm">
       {/* Marca */}
-      <div className="text-center mb-8">
-        <span className="text-4xl font-bold tracking-tight text-neu-accent">
-          Luka
-        </span>
+      <div className="text-center mb-8 flex flex-col items-center">
+        <LukaBrand />
         <p className="mt-1 text-sm text-neu-muted">Control de Finanzas Personales</p>
       </div>
 
