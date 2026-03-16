@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { z } from 'zod';
+import { getURL } from '@/lib/utils/url';
 
 export type ActionResult<T> =
   | { success: true; data: T }
@@ -29,7 +30,7 @@ export async function signUp(data: unknown): Promise<ActionResult<{ email: strin
       email: validated.email,
       password: validated.password,
       options: {
-        emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`,
+        emailRedirectTo: `${getURL()}auth/callback`,
       },
     });
 
@@ -81,7 +82,7 @@ export type OAuthProvider = 'google' | 'apple';
 export async function signInWithOAuth(provider: OAuthProvider): Promise<ActionResult<void>> {
   try {
     const supabase = await createClient();
-    const redirectTo = `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`;
+    const redirectTo = `${getURL()}auth/callback`;
     
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider,
@@ -106,7 +107,6 @@ export async function signInWithOAuth(provider: OAuthProvider): Promise<ActionRe
     return { success: false, error: `Error al iniciar sesión con ${provider}` };
   }
 }
-
 
 
 export async function signOut(): Promise<ActionResult<void>> {
