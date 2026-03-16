@@ -18,6 +18,9 @@ const config = {
       },
     },
     extend: {
+      fontFamily: {
+        sora: ["var(--font-sora)", "sans-serif"],
+      },
       colors: {
         // shadcn/ui semantic tokens (driven by CSS variables)
         border: "hsl(var(--border))",

@@ -4,6 +4,7 @@ import { ensureDefaultCurrencies } from '@/lib/actions/currencies';
 import { syncSystemCategories } from '@/lib/actions/categories';
 import { SidebarNav } from '@/components/shared/sidebar-nav';
 import { MobileNav } from '@/components/shared/mobile-nav';
+import { MobileHeader } from '@/components/shared/mobile-header';
 
 export default async function DashboardLayout({
   children,
@@ -30,14 +31,17 @@ export default async function DashboardLayout({
 
       {/* ── Main content area ── */}
       <main className="flex-1 overflow-y-auto overflow-x-hidden min-w-0">
-        {/* Top bar */}
+        {/* Mobile top header */}
+        <MobileHeader />
+
+        {/* Desktop top bar */}
         <header className="
+          hidden md:flex
           sticky top-0 z-10
-          h-16 flex items-center px-4 md:px-8
+          h-16 items-center px-8
           bg-neu/80 backdrop-blur-md
           border-b border-neu
         ">
-          {/* Breadcrumb / page title injected by each page via slot — spacer for now */}
           <div className="flex-1" />
         </header>
 

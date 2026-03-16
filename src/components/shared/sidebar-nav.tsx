@@ -11,19 +11,19 @@ import {
   CircleDollarSign,
   Settings,
   LogOut,
-  Coins,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import { signOut } from '@/lib/actions/auth';
+import { LukaBrand } from '@/components/shared/luka-logo';
 
 const NAV_ITEMS = [
-  { label: 'Inicio',              href: '/dashboard',      icon: LayoutDashboard },
-  { label: 'Cuentas',             href: '/accounts',       icon: Landmark },
-  { label: 'Tarjetas de Crédito', href: '/credits',        icon: CreditCard },
-  { label: 'Transacciones',       href: '/transactions',   icon: ArrowLeftRight },
-  { label: 'Categorías',          href: '/categories',     icon: Tag },
-  { label: 'Divisas',             href: '/currencies',     icon: CircleDollarSign },
-  { label: 'Ajustes',             href: '/settings',       icon: Settings },
+  { label: 'Inicio', href: '/dashboard', icon: LayoutDashboard },
+  { label: 'Cuentas', href: '/accounts', icon: Landmark },
+  { label: 'Tarjetas de Crédito', href: '/credits', icon: CreditCard },
+  { label: 'Transacciones', href: '/transactions', icon: ArrowLeftRight },
+  { label: 'Categorías', href: '/categories', icon: Tag },
+  { label: 'Divisas', href: '/currencies', icon: CircleDollarSign },
+  { label: 'Ajustes', href: '/settings', icon: Settings },
 ] as const;
 
 interface SidebarNavProps {
@@ -44,16 +44,7 @@ export function SidebarNav({ userEmail }: SidebarNavProps) {
     ">
       {/* ── Logo ── */}
       <div className="flex items-center gap-3 px-6 py-7">
-        <div className="
-          flex items-center justify-center w-9 h-9
-          rounded-neu-sm bg-neu-raised
-          shadow-soft-out
-        ">
-          <Coins className="w-5 h-5 text-luka-accent" strokeWidth={1.5} />
-        </div>
-        <span className="text-xl font-semibold tracking-tight text-white/90">
-          Luka
-        </span>
+        <LukaBrand />
       </div>
 
       {/* ── Navigation ── */}
@@ -74,9 +65,9 @@ export function SidebarNav({ userEmail }: SidebarNavProps) {
                 isActive
                   ? 'neu-nav-active text-luka-accent shadow-soft-in'
                   : [
-                      'text-white/50 hover:text-white/80',
-                      'hover:bg-neu-raised hover:shadow-soft-out',
-                    ],
+                    'text-white/50 hover:text-white/80',
+                    'hover:bg-neu-raised hover:shadow-soft-out',
+                  ],
               )}
             >
               <Icon
@@ -113,7 +104,7 @@ export function SidebarNav({ userEmail }: SidebarNavProps) {
         </div>
 
         {/* Logout */}
-        <form action={signOut}>
+        <form action={() => signOut()}>
           <button
             type="submit"
             className="
